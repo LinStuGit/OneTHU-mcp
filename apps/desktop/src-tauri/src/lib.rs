@@ -792,12 +792,21 @@ struct BinaryOut {
 /// webview 的 <img> 不携带应用会话 Cookie，直挂 learn 地址只会得到登录页/401。
 #[tauri::command]
 async fn fetch_binary(url: String, cookies: String) -> Result<BinaryOut, String> {
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .no_proxy() // 同 download_file：清华域直连，绕系统代理（参考 PR #2）
-        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
-        .build()
-        .map_err(|e| e.to_string())?;
+    // 共享 client + 超时（2026-09-13 用户实锤「其他服务变慢」：每调用新建
+    // client 无连接复用（每次全量 TLS 握手）且无任何超时——校外不可达直连
+    // 挂到 OS 级 75s TCP 超时，反复开关通知=悬挂连接与 async 任务堆积）。
+    // once_cell 懒初始化：连接池复用，connect 5s / 总 12s 硬顶。
+    static CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .no_proxy() // 同 download_file：清华域直连，绕系统代理（参考 PR #2）
+            .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+            .connect_timeout(std::time::Duration::from_secs(5))
+            .timeout(std::time::Duration::from_secs(12))
+            .build()
+            .expect("fetch_binary client build")
+    });
+    let client = &*CLIENT;
     // learn 端点部分校验同域 Referer——统一带上首页引用页（防御性，实测无害）
     let mut req = client.get(&url).header("Cookie", cookies);
     if url.contains("learn.tsinghua.edu.cn") {

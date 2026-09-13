@@ -131,6 +131,11 @@ export function RichContent({ html, fallback = "暂无内容。" }: { html?: str
       // 入 grab 之前：src 空被静默跳过或 core 层解析已丢 img；每图一行定位层别）
       void logLine(`RichContent img-in: ${abs.slice(0, 200)}`).catch(() => undefined);
       img.src = IMG_PLACEHOLDER; // 插入瞬间掐断 webview 原生加载（无应用 Cookie，只会得到登录页碎图）
+      // 抓取中给可见骨架（用户实锤「刚打开不显示」：隐形 1×1 占位让位子直接塌掉）
+      img.style.width = "100%";
+      img.style.minHeight = "140px";
+      img.style.background = "var(--skeleton, rgba(0,0,0,.04))";
+      img.style.borderRadius = "8px";
       try {
         const hit = imgDataCache.get(abs);
         // 三级回退（用户实锤：讨论区图片好、通知/作业碎图）：①learn 直连带
@@ -159,6 +164,10 @@ export function RichContent({ html, fallback = "暂无内容。" }: { html?: str
         if (imgDataCache.size > 60) imgDataCache.clear();
         imgDataCache.set(abs, dataUrl);
         img.src = dataUrl;
+        img.style.width = "";
+        img.style.minHeight = "";
+        img.style.background = "";
+        img.style.borderRadius = "";
         void logLine(`RichContent img-ok: bytes=${dataUrl.length} connected=${img.isConnected}`).catch(() => undefined);
       } catch (eFinal: unknown) {
         // 无条件留痕：cancelled 分支曾吞掉所有取证（img-in 后无声无息的真相候选）
