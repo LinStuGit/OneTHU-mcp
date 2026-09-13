@@ -124,6 +124,9 @@ export function RichContent({ html, fallback = "暂无内容。" }: { html?: str
 
     const grab = async (img: HTMLImageElement, raw: string): Promise<void> => {
       const abs = /^https?:\/\//i.test(raw) ? raw : new URL(raw, LEARN_PREFIX + "/").toString();
+      // 取证入口（2026-09-13：一张通知图未渲染但日志零失败——失败发生在进
+      // 入 grab 之前：src 空被静默跳过或 core 层解析已丢 img；每图一行定位层别）
+      void invoke("log_debug", { line: `RichContent img-in: ${abs.slice(0, 200)}` }).catch(() => undefined);
       img.src = IMG_PLACEHOLDER; // 插入瞬间掐断 webview 原生加载（无应用 Cookie，只会得到登录页碎图）
       try {
         const hit = imgDataCache.get(abs);
@@ -153,7 +156,10 @@ export function RichContent({ html, fallback = "暂无内容。" }: { html?: str
         if (done.has(img)) continue;
         const raw = img.getAttribute("src") ?? "";
         img.dataset.onethu = "1";
-        if (!raw || /^(data|blob):/i.test(raw)) continue;
+        if (!raw || /^(data|blob):/i.test(raw)) {
+          void invoke("log_debug", { line: `RichContent img-skip: src=${JSON.stringify(raw).slice(0, 200)}` }).catch(() => undefined);
+          continue;
+        }
         done.add(img);
         void grab(img, raw);
       }
