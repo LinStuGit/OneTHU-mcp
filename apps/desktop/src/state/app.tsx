@@ -209,7 +209,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
       // 恢复失败（learn/id 会话过期是常态）且勾选了记住密码 → 静默重登一次，免输密码
+      const TS = Date.now();
       const silent = await clients.trySilentRelogin().catch(() => false);
+      void import("../lib/clients.js").then(({ logLine }) =>
+        logLine(`BOOT-T trySilentRelogin(${silent ? "成功" : "失败"}) +${Date.now() - TS}ms`),
+      ).catch(() => undefined);
       if (cancelled) return;
       if (silent) {
         const saved = await clients.store.loadSession();

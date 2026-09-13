@@ -446,25 +446,36 @@ export async function resumeSession(): Promise<boolean> {
   const remembered = await loadRemembered();
   if (remembered) session.injectCredentials(remembered.username, remembered.password);
   session.reseed();
+  // [dev 分支计时探针] 启动各阶段毫秒级分解——数据驱动定位蜗牛环节
+  const T = Date.now();
+  const mark = (label: string): void => {
+    void logLine(`BOOT-T ${label} +${Date.now() - T}ms`).catch(() => undefined);
+  };
+  mark("水合完成(0网络)");
   let okLearn = await learn.resume().catch((e) => {
     logLine("RESUME learn-error " + String(e)).catch(() => undefined);
     return false;
   });
+  mark(okLearn ? "learn.resume(会话活)" : "learn.resume(过期)");
   if (!okLearn) {
     // learn 漫游会话约 8 分钟过期是常态：用持久化的 id CAS 主会话重新发票→漫游（免密）
     await logLine("RESUME learn 直连失效 → 尝试 id 主会话重漫游").catch(() => undefined);
     okLearn = await session.relearnRoam();
+    mark(`relearnRoam(${okLearn ? "成功" : "失败"})`);
     if (okLearn) {
       await persist(); // 重漫游刷新了 demo 字符串（新 learn 会话），回写供下次 resume
     }
   }
   if (!okLearn) {
     await logLine("RESUME fail (learn.csrf 不可用，重漫游也未成)" + "\n" + session.debugLog.join("\n"));
+    mark("RESUME-FAIL(总耗时)");
     return false;
   }
   session.state = "ready";
   await info.resume().catch(() => false);
+  mark("info.resume");
   await logLine("RESUME ok\n" + session.debugLog.join("\n"));
+  mark("READY(总耗时)");
   return true;
 }
 
