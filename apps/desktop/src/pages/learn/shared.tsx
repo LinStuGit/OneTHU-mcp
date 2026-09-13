@@ -10,6 +10,7 @@ import { useApp } from "../../state/context.js";
 import { getSelectedSemester, setSelectedSemester } from "../../state/data.js";
 import { topLevelPage, type Page } from "../../state/app.js";
 import { fetchImageAsDataUrl, fetchImageByUrl, logLine } from "../../lib/clients.js";
+import { softRecover } from "../../state/data.js";
 import { invoke } from "@tauri-apps/api/core";
 import { openFilePreview } from "../../components/FilePreview.js";
 import { openExternal } from "../info/openExternal.js";
@@ -169,9 +170,27 @@ export function RichContent({ html, fallback = "暂无内容。" }: { html?: str
         img.style.background = "";
         img.style.borderRadius = "";
         void logLine(`RichContent img-ok: bytes=${dataUrl.length} connected=${img.isConnected}`).catch(() => undefined);
-      } catch (eFinal: unknown) {
-        // 无条件留痕：cancelled 分支曾吞掉所有取证（img-in 后无声无息的真相候选）
-        void logLine(`RichContent img-fail: ${String(eFinal instanceof Error ? eFinal.message : eFinal).slice(0, 140)} cancelled=${cancelled} connected=${img.isConnected}`).catch(() => undefined);
+      } catch (eFirst: unknown) {
+        // 认证墙自愈（2026-09-13 破案：44ms 瞬拒「会话已失效」——附件端点要
+        // learn 会话，单会话互踢下经常死；一次 softRecover 重建后重试一把）
+        const msg = String(eFirst instanceof Error ? eFirst.message : eFirst);
+        if (/会话已失效|登录超时|未登录/.test(msg) && !img.dataset.onethuRetried) {
+          img.dataset.onethuRetried = "1";
+          void logLine(`RichContent img-auth-heal: 触发会话自愈重试`).catch(() => undefined);
+          try {
+            if (await softRecover("learn-img")) {
+              const retry = await fetchImageByUrl(abs, true).catch(() => "");
+              if (retry && !cancelled) {
+                imgDataCache.set(abs, retry);
+                img.src = retry;
+                img.style.width = ""; img.style.minHeight = ""; img.style.background = ""; img.style.borderRadius = "";
+                void logLine(`RichContent img-ok(healed): bytes=${retry.length}`).catch(() => undefined);
+                return;
+              }
+            }
+          } catch { /* 自愈失败走正常失败路径 */ }
+        }
+        void logLine(`RichContent img-fail: ${msg.slice(0, 140)} cancelled=${cancelled} connected=${img.isConnected}`).catch(() => undefined);
         if (!cancelled) {
           img.setAttribute("alt", (img.getAttribute("alt") ? img.getAttribute("alt") + " " : "") + "（图片加载失败）");
           img.style.opacity = "0.45";
