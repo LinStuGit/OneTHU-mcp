@@ -18,7 +18,8 @@ import type { CalendarSemester } from "@onethu/core";
 import { fileRead, fileWrite, info } from "../lib/clients.js";
 import { getCloudEvents, getLocalEvents, buildSemesterEvents, onCloudCalChange } from "./cloudCal.js";
 import { parseLearnTime } from "@onethu/core";
-import { getLearnSnapshot, subscribeLearnData } from "./data.js";
+import type { ScheduleEntry } from "@onethu/core";
+import { getLearnSnapshot, getWeekSchedSnapshot, subscribeLearnData } from "./data.js";
 import { getHwRemindState, subscribeHwRemind, type HwRemindState } from "./hwRemind.js";
 import { getCachedCalendar } from "./data.js";
 
@@ -174,9 +175,21 @@ async function buildPayload(): Promise<SyncPayloadArg> {
     });
   }
 
-  // 课表/考试（-15 分钟提醒）；获取失败整体中止——防止半量镜像清掉已有内容
+  // 课表/考试（-15 分钟提醒）；获取失败整体中止——防止半量镜像清掉已有内容。
+  // SWR 兜底（2026-09-13 用户实锤「存入系统日历失败：会话已失效」）：现场拉取
+  // 撞会话墙时退回缓存周课表合并快照——旧数据同样是完整学期镜像，不违反
+  // 防半量中止；一个周缓存都没有才让错误原样浮出。
   if (sem) {
-    const { events: courseEvents } = await buildSemesterEvents(sem, (st, en) => info.getSchedule(st, en));
+    const schedFetch = async (st: string, en: string): Promise<ScheduleEntry[]> => {
+      try {
+        return await info.getSchedule(st, en);
+      } catch (err) {
+        const snap = getWeekSchedSnapshot(sem.semesterId);
+        if (snap && snap.length > 0) return snap;
+        throw err;
+      }
+    };
+    const { events: courseEvents } = await buildSemesterEvents(sem, schedFetch);
     for (const ev of courseEvents) {
       events.push({
         title: ev.summary,

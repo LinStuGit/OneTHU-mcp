@@ -24,6 +24,21 @@ function lsKey(key: string): string {
   return `onethu.cache.${key}.v1`;
 }
 
+/** 全部缓存键（内存 ∪ localStorage）：跨键聚合快照用（如系统日历 SWR 兜底） */
+export function cacheKeys(): string[] {
+  const keys = new Set(mem.keys());
+  try {
+    const n = globalThis.localStorage?.length ?? 0;
+    for (let i = 0; i < n; i++) {
+      const k = globalThis.localStorage?.key(i);
+      if (k?.startsWith("onethu.cache.") && k.endsWith(".v1")) {
+        keys.add(k.slice("onethu.cache.".length, -".v1".length));
+      }
+    }
+  } catch { /* 无 localStorage 环境静默 */ }
+  return [...keys];
+}
+
 /** 读缓存：内存优先，未命中回落 localStorage（并回填内存） */
 export function cacheGet<T>(key: string): CacheEntry<T> | null {
   const hit = mem.get(key) as CacheEntry<T> | undefined;

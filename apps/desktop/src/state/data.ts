@@ -51,7 +51,7 @@ import {
   demoCardBundle,
 } from "../demo/data.js";
 import { useApp } from "./context.js";
-import { cacheGet, cacheSet, cacheFetch ,
+import { cacheGet, cacheSet, cacheFetch, cacheKeys,
   purgeXkCaches } from "./cache.js";
 
 /** info/zhjwxk 页内错误落盘（/tmp/onethu-debug.log），解析不匹配时可一轮定位 */
@@ -2429,6 +2429,28 @@ export function useCalendar() {
 
 /** 某教学周课表（week 从 1 起，按所选学期 firstDay 平移 7 天窗口；info.getSchedule zhjw JSONP） */
 const WEEKSCHED_TTL = 10 * 60 * 1000;
+
+/** 学期全周课表缓存快照（系统日历 SWR 兜底用）：扫 weeksched:<semesterId>:*
+ *  合并去重。返回 null=该学期一个周缓存都没有（真·一无所获，兜底不适用）。 */
+export function getWeekSchedSnapshot(semesterId: string): ScheduleEntry[] | null {
+  const prefix = `weeksched:${semesterId}:`;
+  const seen = new Set<string>();
+  const out: ScheduleEntry[] = [];
+  let found = false;
+  for (const k of cacheKeys()) {
+    if (!k.startsWith(prefix)) continue;
+    const hit = cacheGet<ScheduleEntry[]>(k);
+    if (!hit) continue;
+    found = true;
+    for (const e of hit.data) {
+      const sig = `${e.courseName}|${e.date ?? ""}|${e.dayOfWeek ?? ""}|${e.startSection ?? ""}|${e.endSection ?? ""}|${e.location ?? ""}`;
+      if (seen.has(sig)) continue;
+      seen.add(sig);
+      out.push(e);
+    }
+  }
+  return found ? out : null;
+}
 
 export function useWeekSchedule(semester: CalendarSemester | null, week: number) {
   const { status } = useApp();
