@@ -37,6 +37,26 @@ function wrap<T extends Record<string, unknown>>(obj: T, perms: Set<string>, per
   return out as T;
 }
 
+
+/** 选课数据静默重试（2026-09-13：首波并发 ensure 竞态会让首次加载报错、
+ *  手点刷新才好——把「刷新那一下」自动化；用户主动取消不重试） */
+async function xkSilentRetry<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      const msg = String(e);
+      if (msg.includes("已取消")) throw e;
+      const retryable = /Failed to fetch|网络|timeout|timed? ?out|重定向超限|跟跳超限|未落地|身份确认失败|SM2|公钥/.test(msg);
+      if (!retryable || i === tries - 1) throw e;
+      await new Promise((r) => setTimeout(r, 350 * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 export function buildApi(pluginId: string, perms: Set<string>): OnethuApi {
   const storageNs = {
     get<T = string>(key: string): T | null {
@@ -322,17 +342,17 @@ export function buildApi(pluginId: string, perms: Set<string>): OnethuApi {
       search: async (opts: { kcm?: string; kch?: string; teacher?: string; semester?: string; page?: number }) => {
         gate(perms, "xk:read", "xk.search");
         const { searchXkCourses } = await import("@onethu/core");
-        return searchXkCourses(await xkSession(), opts);
+        return xkSilentRetry(async () => searchXkCourses(await xkSession(), opts));
       },
       catalog: async (sem?: string) => {
         gate(perms, "xk:read", "xk.catalog");
         const { getXkCatalog } = await import("@onethu/core");
-        return getXkCatalog(await xkSession(), sem ? { semester: sem } : {});
+        return xkSilentRetry(async () => getXkCatalog(await xkSession(), sem ? { semester: sem } : {}));
       },
       selected: async (sem?: string) => {
         gate(perms, "xk:read", "xk.selected");
         const { getSelectedCourses } = await import("@onethu/core");
-        return getSelectedCourses(await xkSession(), sem ? { semester: sem } : {});
+        return xkSilentRetry(async () => getSelectedCourses(await xkSession(), sem ? { semester: sem } : {}));
       },
       detail: async (teacherId: string, code: string) => {
         gate(perms, "xk:read", "xk.detail");
