@@ -1328,6 +1328,10 @@ export function useXkWorkbench(): XkWorkbench {
   const [searchRunId, setSearchRunId] = useState(0);
   const [searchError, setSearchError] = useState<string | null>(null);
   const searchSeqRef = useRef(0);
+  // 搜索瞬态自愈（2026-09-13 深夜）：首波并发竞态=首搜报错、手点刷新才好——自动重试取代手动
+  const searchRetryRef = useRef(0);
+  const lastSearchMetaRef = useRef<XkSearchMeta | null>(null);
+  const newSearchRef = useRef<((m: XkSearchMeta) => void) | null>(null);
   const searchMetaRef = useRef<XkSearchMeta | null>(null);
   const searchRows = useMemo(
     () => {
@@ -1366,6 +1370,15 @@ export function useXkWorkbench(): XkWorkbench {
 
   const failSearch = useCallback((err: unknown, seq: number): void => {
     if (seq !== searchSeqRef.current) return;
+    // 瞬态错误自动重试（网络/超限/未落地/SM2/公钥/登录未成功）：把「手点刷新」自动化
+    const transient = /Failed to fetch|网络|timeout|timed? ?out|重定向超限|跟跳超限|未落地|身份确认失败|SM2|公钥|登录未成功/.test(String(err));
+    if (transient && searchRetryRef.current < 2 && lastSearchMetaRef.current) {
+      searchRetryRef.current += 1;
+      logPageError("XK-SEARCH-RETRY", err);
+      const m: XkSearchMeta = lastSearchMetaRef.current;
+      setTimeout(() => newSearchRef.current?.(m), 450 * searchRetryRef.current);
+      return;
+    }
     logPageError("XK-SEARCH", err);
     // 失登不整页重载：错误条 + 重试（proxyZhjwxkApi 内部已带 relogin 自愈），保住搜索现场
     setSearchError(explainNetworkError(err));
