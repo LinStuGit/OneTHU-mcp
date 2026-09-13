@@ -228,6 +228,15 @@ async function tauriFetch(url: string, init: RequestInit = {}): Promise<Response
       const location = res.headers["location"] ?? respHeaders.get("location") ?? undefined;
       if (location) {
         let nextUrl = new URL(location, currentUrl).toString();
+        // 舞步检测（2026-09-13 蜂窝实录）：webvpn 会话死时，各包装请求各自被 302
+        // 进 webvpn 登录舞 → N 条并行舞各自落地新 wengine 票据互烧 → 会话永远半死
+        // （每 2s 一轮 XK-DANCE、恢复成功 43s 又死）。停跳打标交上层单飞重建；
+        // 合法舞者（demoLogin）走 manual 逐跳不受影响。
+        if (nextUrl.startsWith("https://webvpn.tsinghua.edu.cn/login")) {
+          respHeaders.set("x-onethu-auth-dance", "webvpn-login");
+          currentUrl = nextUrl;
+          break;
+        }
         if (nextUrl.startsWith("https://webvpn.tsinghua.edu.cn/")) chainEverVpn = true;
         if (chainEverVpn && hopUrlWrapper && !nextUrl.startsWith("https://webvpn.tsinghua.edu.cn/")) {
           nextUrl = hopUrlWrapper(nextUrl);

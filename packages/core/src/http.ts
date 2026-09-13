@@ -528,6 +528,9 @@ export class HttpClient {
   #looksLoggedOut(body: string, response: Response): boolean {
     if (this.#relogin === null) return false;
     if (/\/do\/off\/ui\/auth\/login\//.test(response.url || "")) return true;
+    // 舞步中止标记（transport 层检测到链被 302 进 webvpn 登录舞）：视为失登，
+    // 走 #relogin 单飞重建后重试——绝不各自跳登录舞互烧票据（2026-09-13 定案）
+    if (response.headers.get("x-onethu-auth-dance") === "webvpn-login") return true;
     return /id="sm2publicKey"/.test(body) || /name="i_pass"/.test(body);
   }
 }
