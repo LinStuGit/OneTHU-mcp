@@ -185,7 +185,11 @@ async function buildPayload(): Promise<SyncPayloadArg> {
         return await info.getSchedule(st, en);
       } catch (err) {
         const snap = getWeekSchedSnapshot(sem.semesterId);
-        if (snap && snap.length > 0) return snap;
+        if (snap && snap.length > 0) {
+          console.warn(`[SYSCAL-SWR] 现场拉取失败退缓存快照：${snap.length} 条（sem=${sem.semesterId}；err=${err instanceof Error ? err.message : String(err)}）`);
+          return snap;
+        }
+        console.warn(`[SYSCAL-SWR] 快照兜底不适用（sem=${sem.semesterId}，0 条周缓存）；原始错误浮出`);
         throw err;
       }
     };
