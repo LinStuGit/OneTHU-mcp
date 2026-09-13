@@ -10,6 +10,7 @@ import { PageAtomStar } from "../components/Collect.js";
 import { Card, ErrorNote, PageHead } from "../components/Layout.js";
 import { IconRefresh, IconSchedule } from "../components/Icons.js";
 import { useCalendar, useCampusData } from "../state/data.js";
+import { cacheSet } from "../state/cache.js";
 import { isAuthError } from "@onethu/core";
 import { softRecover } from "../lib/reload.js";
 import { ScheduleAgenda } from "./ScheduleAgenda.js";
@@ -249,6 +250,9 @@ export function SchedulePage() {
       info
         .getSchedule(ymdOf(viewWindow[0]), ymdOf(viewWindow[1]))
         .then((rows) => {
+          // 落持久缓存：系统日历 SWR 兜底的数据源（用户实锤「看得到课表但
+          // 同步报会话失效」——页内 state 对兜底不可见）；重启后也活着
+          cacheSet(`schedwin:${windowKey}`, rows, true);
           if (alive) setWindowRows(rows);
         });
     grab()

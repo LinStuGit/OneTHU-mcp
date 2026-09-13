@@ -2452,6 +2452,7 @@ export function getWeekSchedSnapshot(semesterId?: string): ScheduleEntry[] | nul
       }
     }
   };
+  scan("schedwin:");   // 日程页窗口取数（含持久化，重启存活）
   if (semesterId) scan(`weeksched:${semesterId}:`);
   if (!found) scan("weeksched:");
   return found ? out : null;
