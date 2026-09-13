@@ -529,14 +529,7 @@ export function getSemesterAutoInfo(): { at: number; written: number; removed: n
   return semesterAutoInfo;
 }
 
-function scheduleSemesterCloudSync(): void {
-  if (semesterCloudTimer) clearTimeout(semesterCloudTimer);
-  semesterCloudTimer = setTimeout(() => {
-    semesterCloudTimer = null;
-    void syncSemesterToCloudAuto().catch(() => {
-      /* 静默：下次数据变化再试 */
-    });
-  }, 6000);
-}
-subscribeCampusData(scheduleSemesterCloudSync);
-subscribeCalendarData(scheduleSemesterCloudSync);
+/* 课表上云已退役（2026-09-13 用户决策）：系统日历自动同步覆盖全部场景，
+   云端/本地双源重复日程治理不达标准（日历紊乱实锤）。自动推送订阅与
+   scheduleSemesterCloudSync 守护一并拆除；syncSemesterToCloudAuto 保留
+   导出仅供清除云端残留用途，不再有任何触发点。 */

@@ -19,7 +19,7 @@ import type { ScheduleEntry } from "@onethu/core";
 import { syncSystemCalendar, systemCalSupported } from "../state/systemCal.js";
 import {
   useCloudCal, syncCloudCal, getCloudCalConfig,
-  putCloudEvent, deleteCloudEvent, putLocalEvent, deleteLocalEvent, buildSemesterEvents, syncSemesterToCloudAuto, getSemesterAutoInfo,
+  putCloudEvent, deleteCloudEvent, putLocalEvent, deleteLocalEvent, buildSemesterEvents,
 } from "../state/cloudCal.js";
 import { info } from "../lib/clients.js";
 import { useApp } from "../state/context.js";
@@ -394,7 +394,7 @@ export function SchedulePage() {
 
   /* ---------- 两视图共用：同步 / 课表上云 / 系统日历 / 事件编辑 ---------- */
   const canCloud = cal.configured;
-  const semAuto = getSemesterAutoInfo();
+
   const lastSyncText = cal.lastSyncAt ? `上次同步 ${new Date(cal.lastSyncAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}` : "未同步过";
 
   const onSync = async (): Promise<void> => {
@@ -597,20 +597,7 @@ export function SchedulePage() {
         <button className="btn" onClick={() => void onSystemCal()} disabled={busy}>
           {sysNative === false ? "导出 .ics" : "同步到系统日历"}
         </button>
-        {canCloud && exportSemester ? (
-          <button
-            className="btn"
-            title="课表与作业已配置即自动上云；此为手动兜底（同原子「同步课表到云日历」）"
-            onClick={() => {
-              void syncSemesterToCloudAuto()
-                .then((r) => setMsg(r.skipped ? `课表无需上云：${r.reason ?? "云端已是最新"}` : `课表上云完成：写入 ${r.written} 场（清理旧 ${r.removed} 场）。`))
-                .catch((err: unknown) => setMsg(`课表上云失败：${err instanceof Error ? err.message : String(err)}`));
-            }}
-          >
-            <IconSchedule width={14} height={14} />
-            课表上云{semAuto && semAuto.skipped ? "（自动已同步）" : ""}
-          </button>
-        ) : null}
+
         <button className="btn btn-primary" onClick={() => setDraft(emptyDraft(defaultDraftDate, canCloud))}>
           ＋ 添加日程
         </button>

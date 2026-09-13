@@ -31,7 +31,7 @@ import { WasherTileStatus, ClassroomTileStatus, ClassroomRoomToday } from "../co
 import { INFO_APPS, infoAppUrl } from "../lib/infoApps.js";
 import { openExternal } from "../pages/info/openExternal.js";
 import { getMailHead } from "./mail.js";
-import { syncCloudCal, syncHwToCloud, syncSemesterToCloudAuto } from "./cloudCal.js";
+import { syncCloudCal, syncHwToCloud } from "./cloudCal.js";
 import { showToast } from "./toast.js";
 
 /** 图标最小接口（与 homeCards 的 HomeCardIcon 同口径） */
@@ -126,14 +126,6 @@ interface ActionAtom {
 }
 
 export const ACTION_ATOMS: ActionAtom[] = [
-  {
-    kind: "action", key: "cal-sync-semester", title: "同步课表到云日历", sub: "重建本学期课表+考试写入云日历（平时全自动，这是手动兜底）",
-    icon: IconSchedule, group: "操作",
-    run: async () => {
-      const r = await syncSemesterToCloudAuto();
-      return r.skipped ? `课表未同步：${r.reason ?? "无变化"}` : `课表上云完成：写入 ${r.written} 场（清理旧 ${r.removed} 场）`;
-    },
-  },
   {
     kind: "action", key: "cal-sync-hw", title: "同步作业 DDL 到云日历", sub: "未交作业写入云日历（含提醒闹钟；平时全自动）",
     icon: IconBell, group: "操作",
