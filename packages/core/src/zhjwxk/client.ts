@@ -105,30 +105,27 @@ async function isoHttp(s: ZhjwxkSession): Promise<HttpClient | null> {
   const hit = isoClientCache.get(s);
   if (hit && Date.now() - hit.at < ISO_TTL_MS) return hit.http;
 
-  const { demoLogin, newDemoSession } = await import("../auth/demoLogin.js");
-  const jar = new (s.http.jar.constructor as new () => typeof s.http.jar)();
-  const http = new HttpClient({ fetch: s.isoFetch, jar, userAgent: undefined });
-  http.withWebVPN(s.http.viaWebVPN);
-  http.webVPNEncoder = s.http.webVPNEncoder;
-  // 隔离罐子里逐条灌入是安全的（单用途、无跨模块读者——全局拆条事故的教训
-  // 只适用共享 jar）
-  const demo = newDemoSession();
-  const result = await demoLogin(s.isoFetch, s.username, s.password, demo, s.fingerprint, s.finger3 ?? "");
-  if (typeof result === "object") {
-    zhjwxkDebug?.(`[XK-ISO] 建链失败: ${result.error}`);
-    throw new AuthRequiredError(`选课通道登录失败：${result.error}`);
-  }
-  for (const [d, src] of [
-    ["https://webvpn.tsinghua.edu.cn/", demo.webvpnCookies],
-    ["https://id.tsinghua.edu.cn/", demo.webvpnCookies],
-    ["https://oauth.tsinghua.edu.cn/", demo.webvpnCookies],
-  ] as Array<[string, string]>) {
-    if (!src) continue;
-    for (const pair of src.split("; ")) {
-      if (/^[A-Za-z0-9_]+=.+/.test(pair)) jar.setRaw(new URL(d), `${pair}; Path=/`);
+  // 2026-09-13 v2 定案：隔离通道【绝不自己登录】——webvpn 单会话物理学会把主
+  // 会话踢掉、主会话自愈重登又踢回来（app 自我互踢战争真机实录）。改为拷贝
+  // 全局桶（webvpn/id/oauth 同票共用=零互踢）；票死时靠 AuthRequiredError 走
+  // 全局自愈，恢复后下次尝试自动拷到新票。zhjwxk 专属 cookie 只沉淀在本罐。
+  const { MemoryCookieJar } = await import("../http.js");
+  const jar = new MemoryCookieJar();
+  let copied = 0;
+  for (const d of [
+    "https://webvpn.tsinghua.edu.cn/",
+    "https://id.tsinghua.edu.cn/",
+    "https://oauth.tsinghua.edu.cn/",
+  ]) {
+    for (const c of s.http.jar.getCookies(new URL(d))) {
+      jar.setRaw(new URL(d), `${c.name}=${c.value}; Path=/`);
+      copied += 1;
     }
   }
-  zhjwxkDebug?.(`[XK-ISO] 独立建链 ok（${demo.webvpnCookies.split(";").length} cookies）`);
+  zhjwxkDebug?.(`[XK-ISO] 拷贝全局桶 ${copied} cookies（零登录零互踢）`);
+  const http = new HttpClient({ fetch: s.isoFetch, jar });
+  http.withWebVPN(s.http.viaWebVPN);
+  http.webVPNEncoder = s.http.webVPNEncoder;
   isoClientCache.set(s, { http, at: Date.now() });
   return http;
 }
@@ -284,7 +281,13 @@ async function ensure(
   lastXkReloginAt = Date.now();
   entryCache.set(s, entry);
   return entry;
-  })();
+  })().catch((e) => {
+    // 失登类失败：作废 iso 桶拷贝（票已死，下次尝试重拷全局新票）
+    if (String(e).includes("登录未落地") || String(e).includes("身份确认失败") || String(e).includes("SM2")) {
+      isoClientCache.delete(s);
+    }
+    throw e;
+  });
   entryInflight.set(s, run);
   try {
     const entry = await run;
