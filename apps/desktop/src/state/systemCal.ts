@@ -19,6 +19,7 @@ import { fileRead, fileWrite, info } from "../lib/clients.js";
 import { getCloudEvents, getLocalEvents, buildSemesterEvents, onCloudCalChange } from "./cloudCal.js";
 import { parseLearnTime } from "@onethu/core";
 import type { ScheduleEntry } from "@onethu/core";
+import { cacheGet, cacheSet } from "./cache.js";
 import { getLearnSnapshot, getWeekSchedSnapshot, logPageError, subscribeLearnData } from "./data.js";
 import { getHwRemindState, subscribeHwRemind, type HwRemindState } from "./hwRemind.js";
 import { getCachedCalendar } from "./data.js";
@@ -145,6 +146,51 @@ function currentSemester(): CalendarSemester | null {
   return cal;
 }
 
+/** 学期全量课表（learnX 式范围同步，2026-09-13 用户拍板「自动同步这学期全部」）：
+ *  ≤45 天分片拉取合并去重（整学期一次大查询会撞服务端处理超时——考试接口
+ *  同款教训），成功即落 schedsem:<semesterId> 持久缓存（全量镜像）；任何失
+ *  败退缓存全量镜像（SWR），缓存也空再退周窗碎屑，最后才让错误浮出。 */
+async function fetchSemesterSchedule(sem: CalendarSemester): Promise<ScheduleEntry[]> {
+  const key = `schedsem:${sem.semesterId}`;
+  const d0 = parseYmd(sem.firstDay).getTime();
+  const d1 = d0 + (sem.weekCount * 7 - 1) * DAY;
+  const ymd = (t: number): string => {
+    const d = new Date(t);
+    const p = (n: number): string => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  };
+  const sig = (e: ScheduleEntry): string =>
+    `${e.courseName}|${e.date ?? ""}|${e.dayOfWeek ?? ""}|${e.startSection ?? ""}|${e.endSection ?? ""}|${e.location ?? ""}`;
+  try {
+    const merged: ScheduleEntry[] = [];
+    const seen = new Set<string>();
+    for (let cur = d0; cur <= d1; cur += 44 * DAY) {
+      const rows = await info.getSchedule(ymd(cur), ymd(Math.min(cur + 44 * DAY, d1)));
+      for (const e of rows) {
+        const k2 = sig(e);
+        if (seen.has(k2)) continue;
+        seen.add(k2);
+        merged.push(e);
+      }
+    }
+    cacheSet(key, merged, true);
+    return merged;
+  } catch (err) {
+    const hit = cacheGet<ScheduleEntry[]>(key);
+    if (hit && hit.data.length > 0) {
+      logPageError("SYSCAL-SWR", new Error(`学期全量拉取失败退缓存镜像 ${hit.data.length} 条（sem=${sem.semesterId}；原始错误：${err instanceof Error ? err.message : String(err)}）`));
+      return hit.data;
+    }
+    const crumbs = getWeekSchedSnapshot();
+    if (crumbs && crumbs.length > 0) {
+      logPageError("SYSCAL-SWR", new Error(`全量缓存空，退周窗碎屑 ${crumbs.length} 条（sem=${sem.semesterId}；原始错误：${err instanceof Error ? err.message : String(err)}）`));
+      return crumbs;
+    }
+    logPageError("SYSCAL-SWR", new Error(`全量与碎屑缓存皆空（sem=${sem.semesterId}）；原始错误浮出：${err instanceof Error ? err.message : String(err)}`));
+    throw err;
+  }
+}
+
 async function buildPayload(): Promise<SyncPayloadArg> {
   const now = Date.now();
   const all = [...getCloudEvents(), ...getLocalEvents()];
@@ -180,20 +226,8 @@ async function buildPayload(): Promise<SyncPayloadArg> {
   // 撞会话墙时退回缓存周课表合并快照——旧数据同样是完整学期镜像，不违反
   // 防半量中止；一个周缓存都没有才让错误原样浮出。
   if (sem) {
-    const schedFetch = async (st: string, en: string): Promise<ScheduleEntry[]> => {
-      try {
-        return await info.getSchedule(st, en);
-      } catch (err) {
-        const snap = getWeekSchedSnapshot(sem.semesterId);
-        if (snap && snap.length > 0) {
-          logPageError("SYSCAL-SWR", new Error(`快照兜底命中 ${snap.length} 条（sem=${sem.semesterId}；原始错误：${err instanceof Error ? err.message : String(err)}）`));
-          return snap;
-        }
-        logPageError("SYSCAL-SWR", new Error(`快照兜底不适用（sem=${sem.semesterId}，0 条周缓存）；原始错误浮出：${err instanceof Error ? err.message : String(err)}`));
-        throw err;
-      }
-    };
-    const { events: courseEvents } = await buildSemesterEvents(sem, schedFetch);
+    const semRows = await fetchSemesterSchedule(sem);
+    const { events: courseEvents } = await buildSemesterEvents(sem, async () => semRows);
     for (const ev of courseEvents) {
       events.push({
         title: ev.summary,
