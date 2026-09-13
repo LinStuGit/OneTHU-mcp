@@ -9,7 +9,7 @@ import { LEARN_PREFIX, LEARN_FILE_DOWNLOAD, parseLearnTime } from "@onethu/core"
 import { useApp } from "../../state/context.js";
 import { getSelectedSemester, setSelectedSemester } from "../../state/data.js";
 import { topLevelPage, type Page } from "../../state/app.js";
-import { fetchImageAsDataUrl, fetchImageByUrl } from "../../lib/clients.js";
+import { fetchImageAsDataUrl, fetchImageByUrl, logLine } from "../../lib/clients.js";
 import { invoke } from "@tauri-apps/api/core";
 import { openFilePreview } from "../../components/FilePreview.js";
 import { openExternal } from "../info/openExternal.js";
@@ -105,6 +105,9 @@ export function gradeLabel(grade: string | number | undefined): string {
 const IMG_PLACEHOLDER =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 
+/* 取证横幅：页面加载即一行（经 logLine 带 ISO 时间戳，判读前后归属） */
+void logLine("RichContent module v3 loaded").catch(() => undefined);
+
 /** 正文图片 dataURL 会话缓存：详情页反复进出不重复抓 2MB 级大图 */
 const imgDataCache = new Map<string, string>();
 
@@ -126,7 +129,7 @@ export function RichContent({ html, fallback = "暂无内容。" }: { html?: str
       const abs = /^https?:\/\//i.test(raw) ? raw : new URL(raw, LEARN_PREFIX + "/").toString();
       // 取证入口（2026-09-13：一张通知图未渲染但日志零失败——失败发生在进
       // 入 grab 之前：src 空被静默跳过或 core 层解析已丢 img；每图一行定位层别）
-      void invoke("log_debug", { line: `RichContent img-in: ${abs.slice(0, 200)}` }).catch(() => undefined);
+      void logLine(`RichContent img-in: ${abs.slice(0, 200)}`).catch(() => undefined);
       img.src = IMG_PLACEHOLDER; // 插入瞬间掐断 webview 原生加载（无应用 Cookie，只会得到登录页碎图）
       try {
         const hit = imgDataCache.get(abs);
@@ -144,11 +147,11 @@ export function RichContent({ html, fallback = "暂无内容。" }: { html?: str
           ]);
         const chain = withTimeout(fetchImageAsDataUrl(abs), "直连")
           .catch((e1: unknown) => {
-            void invoke("log_debug", { line: `RichContent img-stage1-fail: ${String(e1 instanceof Error ? e1.message : e1).slice(0, 120)} → 分流` }).catch(() => undefined);
+            void logLine(`RichContent img-stage1-fail: ${String(e1 instanceof Error ? e1.message : e1).slice(0, 120)} → 分流`).catch(() => undefined);
             return withTimeout(fetchImageByUrl(abs), "分流");
           })
           .catch((e2: unknown) => {
-            void invoke("log_debug", { line: `RichContent img-stage2-fail: ${String(e2 instanceof Error ? e2.message : e2).slice(0, 120)} → 强制包装` }).catch(() => undefined);
+            void logLine(`RichContent img-stage2-fail: ${String(e2 instanceof Error ? e2.message : e2).slice(0, 120)} → 强制包装`).catch(() => undefined);
             return withTimeout(fetchImageByUrl(abs, true), "强制包装");
           });
         const dataUrl = hit ?? (await chain);
@@ -157,10 +160,10 @@ export function RichContent({ html, fallback = "暂无内容。" }: { html?: str
         if (imgDataCache.size > 60) imgDataCache.clear();
         imgDataCache.set(abs, dataUrl);
         img.src = dataUrl;
-        void invoke("log_debug", { line: `RichContent img-ok: bytes=${dataUrl.length} connected=${img.isConnected}` }).catch(() => undefined);
+        void logLine(`RichContent img-ok: bytes=${dataUrl.length} connected=${img.isConnected}`).catch(() => undefined);
       } catch (eFinal: unknown) {
         // 无条件留痕：cancelled 分支曾吞掉所有取证（img-in 后无声无息的真相候选）
-        void invoke("log_debug", { line: `RichContent img-fail: ${String(eFinal instanceof Error ? eFinal.message : eFinal).slice(0, 140)} cancelled=${cancelled} connected=${img.isConnected}` }).catch(() => undefined);
+        void logLine(`RichContent img-fail: ${String(eFinal instanceof Error ? eFinal.message : eFinal).slice(0, 140)} cancelled=${cancelled} connected=${img.isConnected}`).catch(() => undefined);
         if (!cancelled) {
           img.setAttribute("alt", (img.getAttribute("alt") ? img.getAttribute("alt") + " " : "") + "（图片加载失败）");
           img.style.opacity = "0.45";
@@ -174,7 +177,7 @@ export function RichContent({ html, fallback = "暂无内容。" }: { html?: str
         const raw = img.getAttribute("src") ?? "";
         img.dataset.onethu = "1";
         if (!raw || /^(data|blob):/i.test(raw)) {
-          void invoke("log_debug", { line: `RichContent img-skip: src=${JSON.stringify(raw).slice(0, 200)}` }).catch(() => undefined);
+          void logLine(`RichContent img-skip: src=${JSON.stringify(raw).slice(0, 200)}`).catch(() => undefined);
           continue;
         }
         done.add(img);
