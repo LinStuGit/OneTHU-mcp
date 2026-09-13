@@ -127,12 +127,13 @@ export function RichContent({ html, fallback = "暂无内容。" }: { html?: str
       img.src = IMG_PLACEHOLDER; // 插入瞬间掐断 webview 原生加载（无应用 Cookie，只会得到登录页碎图）
       try {
         const hit = imgDataCache.get(abs);
-        // 两级回退，包装优先（2026-09-13：直连优先在校外白等 connect 超时
-        // 5s 才轮到能通的 webvpn；webvpn 校内外恒可达且带 Referer/Cookie 桶，
-        // 直连降为备路——校内用户备路即直连，零损失）
+        // 三级回退（用户实锤：讨论区图片好、通知/作业碎图）：①learn 直连带
+        // csrf ②按 host 分流（非公网包 webvpn；公网再试双桶 cookie 直连）
+        // ③无视分流强制 webvpn 包装——learn 直连在校园网外不可达时的真终点
         const dataUrl = hit
-          ?? (await fetchImageByUrl(abs, true)
-            .catch(() => fetchImageAsDataUrl(abs)));
+          ?? (await fetchImageAsDataUrl(abs)
+            .catch(() => fetchImageByUrl(abs))
+            .catch(() => fetchImageByUrl(abs, true)));
         if (cancelled) return;
         if (!dataUrl) throw new Error("empty");
         if (imgDataCache.size > 60) imgDataCache.clear();
