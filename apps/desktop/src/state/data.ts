@@ -1389,6 +1389,7 @@ export function useXkWorkbench(): XkWorkbench {
     async (meta: XkSearchMeta) => {
       const seq = ++searchSeqRef.current;
       searchMetaRef.current = meta;
+      lastSearchMetaRef.current = meta;
       setSearchError(null);
       setSearchRunId((v) => v + 1);
       if (status === "demo") {
@@ -1493,6 +1494,7 @@ export function useXkWorkbench(): XkWorkbench {
         setSearchHasMore(false);
         setSearchIncomplete(deficit > 0 || tp > okPages || (tp === 0 && okPages === probeTo && lastFull)); // 总数核对优先，页数兜底
         setSearchError(head.pageKind === "unknown" ? `教务返回异常页（首段: ${head.htmlHead}）` : null);
+        searchRetryRef.current = 0;
         setSearchState("ready");
         if (deficit > 0) setToast(`爬取不完整：教务共 ${locked} 门，实得 ${merged.length} 门，缺 ${deficit} 门。建议刷新或待会再来看看`);
       } catch (err) {
@@ -1501,6 +1503,7 @@ export function useXkWorkbench(): XkWorkbench {
     },
     [status, fetchXkPage, failSearch],
   );
+  newSearchRef.current = (m: XkSearchMeta) => { void newSearch(m); };
 
   /** 搜索模式「加载当前关键词全部」：从第 4 页起爬到空页（5 并发池 + 30ms 限速），完成 toast */
   const loadAllSearch = useCallback(async () => {
