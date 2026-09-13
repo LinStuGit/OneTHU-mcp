@@ -417,7 +417,9 @@ async function loadFinger3(): Promise<string> {
 }
 
 export async function resumeSession(): Promise<boolean> {
+  void logLine("PROBE resume-entry").catch(() => undefined);
   let saved = await store.loadSession();
+  void logLine("PROBE store-loaded").catch(() => undefined);
   if (!saved) {
     // localStorage 缺失（WKWebView 驱逐/清空）：从 appData 文件回灌并写回本地
     const raw = await fileRead(SESSION_FILE);

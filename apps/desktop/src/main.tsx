@@ -8,6 +8,8 @@ function hookRenderError(kind: string, detail: string): void {
 window.addEventListener("error", (e) => {
   if (e.message || e.error) hookRenderError("window", `${e.message} @${e.filename}:${e.lineno} stack=${e.error?.stack?.slice(0, 900) ?? ""}`);
 });
+// [dev 逐行探针] 模块求值完成（若蜂窝下此行不出现=模块加载期悬挂）
+void logLine("PROBE js-modules-evaluated").catch(() => undefined);
 window.addEventListener("unhandledrejection", (e) => {
   hookRenderError("rejection", `${String((e.reason as Error)?.message ?? e.reason).slice(0, 300)} stack=${(e.reason as Error)?.stack?.slice(0, 900) ?? ""}`);
 });
