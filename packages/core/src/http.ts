@@ -314,14 +314,11 @@ export class HttpClient {
     }
     let goDirect = direct === true;
     if (!goDirect && host) {
-      // 2026-09-13 数据网络实锤修复：webvpn 模式此前只放行 learn 直连，id/oauth
-      // 的 redirect 跟跳被 webvpn 包装 → 选课 SM2 表单拿到包装变体页（解析炸
-      // 「无法从登录页获取 SM2 公钥」）+ 启动/重登链每跳绕代理。id/oauth 是
-      // 公网登录链域（登录链 direct:true 路径常年直连验证安全），与 learn 同放行；
-      // 真内网域（info/zhjwxk.cic 等）维持 webvpn 包装不变。
-      goDirect = this.#webVPN
-        ? host === "learn.tsinghua.edu.cn" || host === "id.tsinghua.edu.cn" || host === "oauth.tsinghua.edu.cn"
-        : PUBLIC_HOSTS.has(host);
+      // 2026-09-13 回滚：id/oauth 直连改动破坏了 webvpn 包装的会话隔离——
+      // 手机（webvpn 桶）与桌面（直连桶）原本在不同命名空间互不干扰；直连化
+      // 后手机闯进直连 id 命名空间=加入单会话互踢（选课 checkSingle 页=踢人
+      // 确认页实锤）。「非校园网适配」的精髓就是这层隔离，恢复原状。
+      goDirect = this.#webVPN ? host === "learn.tsinghua.edu.cn" : PUBLIC_HOSTS.has(host);
     }
     const target = this.webVPNEncoder && !goDirect && host && !PUBLIC_HOSTS.has(host)
       ? this.webVPNEncoder(url)
