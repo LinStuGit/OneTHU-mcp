@@ -108,7 +108,7 @@ export function parseCasFormHtml(formHtml: string, viaWebVPN: boolean): CasFormI
     // 需要看到实际返回的页面才能补齐变体——webvpn 包装下可能出现新页面形态）
     throw new CasError(
       "无法从登录页获取 SM2 公钥（页面结构可能已变更） 页首=" +
-        formHtml.slice(0, 400).replace(/\s+/g, " "),
+        formHtml.slice(0, 1500).replace(/\s+/g, " "),
     );
   }
   const formAction =
