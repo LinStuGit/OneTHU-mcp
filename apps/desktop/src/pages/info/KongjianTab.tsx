@@ -57,8 +57,8 @@ export function KongjianTab({ kongjianSpace, kongjianRoom }: { kongjianSpace?: s
   const [records, setRecords] = useState<KongjianRecord[] | null>(null);
   const [recState, setRecState] = useState<LoadState>("loading");
 
-  const fail = useCallback((err: unknown) => {
-    logTabErr("KONGJIAN", err);
+  const fail = useCallback((err: unknown, retry?: () => void) => {
+    logTabErr("KONGJIAN", err, retry);
     setUnavailable(isServiceUnavailable(err));
     setError(tabErrorText(err));
     setState("error");
@@ -87,7 +87,8 @@ export function KongjianTab({ kongjianSpace, kongjianRoom }: { kongjianSpace?: s
         logTabErr("KONGJIAN", new Error("公共空间列表为空（门户页兜底未命中）"));
       }
     } catch (err) {
-      if (!(silent && page !== null)) fail(err);
+      // SWR：有陈旧数据时静默保留，绝不闪错；无数据走 fail（认证错自动重建重拉）
+      if (!(silent && page !== null)) fail(err, () => void loadSpaces(true));
     }
   }, [status, fail, page]);
 

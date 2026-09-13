@@ -12,17 +12,30 @@
 import { ErrorNote, Empty, Card } from "../../components/Layout.js";
 import { explainNetworkError } from "../../lib/transport.js";
 import { logLine, session } from "../../lib/clients.js";
+import { softRecover } from "../../lib/reload.js";
 
-/** 页内错误落盘（与 DormTab logErr 同款，只写 /tmp/onethu-debug.log） */
-export function logTabErr(tag: string, err: unknown): void {
+/** 页内错误落盘（与 DormTab logErr 同款，只写 /tmp/onethu-debug.log）。
+ * 2026-09-13 升级（thu-info 完整复刻）：认证类错误不再「只提示等手动重试」
+ * ——softRecover 透明重建成功后自动重拉（提供 retry 时），用户全程无感；
+ * 未提供 retry 的调用方维持旧行为（提示+重试按钮，此时会话已重建，
+ * 点重试即成功）。上游维护/瞬时网络错误策略不变。 */
+export function logTabErr(tag: string, err: unknown, retry?: () => void): void {
   void logLine(
     "PAGE-ERR " + tag + " " + (err instanceof Error ? err.message : String(err)),
   ).catch(() => undefined);
-  // 稳定性专项（2026-09-11）：硬刷新核弹退役——auth 失效/未知错误改为 keepalive
-  // 探针判定（轻量 GET），会话真死才 softRelogin 透明重建；用户点「重试」时
-  // 踩的已是活会话。上游维护是已知态（校网独立）；瞬时网络错误重建无益。
   if (isServiceUnavailable(err)) return;
   if (isTransientNetworkError(err)) return;
+  if (isAuthExpired(err)) {
+    void softRecover(tag)
+      .then((ok) => {
+        if (ok && retry) {
+          logLine("TAB-HEAL " + tag + " 会话重建成功→自动重拉").catch(() => undefined);
+          retry();
+        }
+      })
+      .catch(() => undefined);
+    return;
+  }
   void session.keepalive().catch(() => undefined);
 }
 
