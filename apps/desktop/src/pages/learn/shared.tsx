@@ -133,10 +133,16 @@ export function RichContent({ html, fallback = "暂无内容。" }: { html?: str
         // 三级回退（用户实锤：讨论区图片好、通知/作业碎图）：①learn 直连带
         // csrf ②按 host 分流（非公网包 webvpn；公网再试双桶 cookie 直连）
         // ③无视分流强制 webvpn 包装——learn 直连在校园网外不可达时的真终点
+        // 15s 总超时：fetch_binary 悬挂时占位图（1×1 透明 gif）= 视觉「没看到」
+        // 且成败日志双缺（img-in 取证实锤）——到点强制走失败路径留痕
+        const chain = fetchImageAsDataUrl(abs)
+          .catch(() => fetchImageByUrl(abs))
+          .catch(() => fetchImageByUrl(abs, true));
         const dataUrl = hit
-          ?? (await fetchImageAsDataUrl(abs)
-            .catch(() => fetchImageByUrl(abs))
-            .catch(() => fetchImageByUrl(abs, true)));
+          ?? (await Promise.race([
+            chain,
+            new Promise<never>((_, rej) => setTimeout(() => rej(new Error("图片抓取超时 15s")), 15_000)),
+          ]));
         if (cancelled) return;
         if (!dataUrl) throw new Error("empty");
         if (imgDataCache.size > 60) imgDataCache.clear();
