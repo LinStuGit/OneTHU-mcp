@@ -419,6 +419,11 @@ export async function currentFingerprint(): Promise<string> {
   return fp;
 }
 
+/** facade 等外部模块的安全入口（动态 import 防环） */
+export async function loadFinger3Safe(): Promise<string> {
+  return loadFinger3().catch(() => "");
+}
+
 async function loadFinger3(): Promise<string> {
   const saved = await store.loadSession();
   return saved?.finger3 ?? "";

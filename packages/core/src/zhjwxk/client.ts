@@ -22,7 +22,7 @@
  * 响应编码：桌面端 Tauri 传输层（reqwest charset）已把 GBK 自动转码为 UTF-8；
  * 字节路径的解码语义见 crypto/decryptResponse.ts（demo 的 decryptResponse 移植）。
  */
-import { AuthRequiredError, type HttpClient } from "../http.js";
+import { AuthRequiredError, HttpClient } from "../http.js";
 import { gbkPercentEncode } from "./gbk-table.js";
 import { searchXkCoursesByTab } from "./xk-tab.js";
 import { deptCodeOf, normSeq, parsePagerInfo, parseVolRows, parseVolSportsRows, parseVolStr, type XkVolRow } from "./xk-vol.js";
@@ -45,6 +45,12 @@ export interface ZhjwxkSession {
   readonly username: string;
   readonly password: string;
   readonly fingerprint: string;
+  /** 选课隔离通道（2026-09-13）：提供时 ensure 走专用 HttpClient+自管 jar
+   *  +独立 demoLogin 建链——webvpn 桶污染不进全局会话（seedJar 拆条事故定案：
+   *  选课的多域 cookie 需求只能在自己罐子里满足，爆炸半径锁死本模块）。 */
+  readonly isoFetch?: (url: string, init?: RequestInit) => Promise<Response>;
+  /** 受信设备三段指纹（demoLogin 免 2FA 用；缺省时隔离通道可能被要求 2FA */
+  readonly finger3?: string;
 }
 
 /** 已选课程（demo /api/courses 的 courses 项，字段一一对应） */
@@ -84,6 +90,54 @@ export function semesterFromDate(now = new Date()): string {
   return `${y - 1}-${y}-2`;
 }
 
+/* ── 隔离通道：专用 HttpClient + 自管 jar（探针 scripts/xk-webvpn-probe.mts
+ *  验证：demoLogin 独立建链 → 逐条灌 jar → xklogin（webvpn 重登劫持时重放一次）
+ *  → 真票据兑付 → p_xnxq 落地。全程不触碰全局 jar/era 快照。 ───────────── */
+interface IsoClient {
+  http: HttpClient;
+  at: number;
+}
+const isoClientCache = new WeakMap<ZhjwxkSession, IsoClient>();
+const ISO_TTL_MS = 10 * 60_000;
+
+async function isoHttp(s: ZhjwxkSession): Promise<HttpClient | null> {
+  if (!s.isoFetch) return null;
+  const hit = isoClientCache.get(s);
+  if (hit && Date.now() - hit.at < ISO_TTL_MS) return hit.http;
+
+  const { demoLogin, newDemoSession } = await import("../auth/demoLogin.js");
+  const jar = new (s.http.jar.constructor as new () => typeof s.http.jar)();
+  const http = new HttpClient({ fetch: s.isoFetch, jar, userAgent: undefined });
+  http.withWebVPN(s.http.viaWebVPN);
+  http.webVPNEncoder = s.http.webVPNEncoder;
+  // 隔离罐子里逐条灌入是安全的（单用途、无跨模块读者——全局拆条事故的教训
+  // 只适用共享 jar）
+  const demo = newDemoSession();
+  const result = await demoLogin(s.isoFetch, s.username, s.password, demo, s.fingerprint, s.finger3 ?? "");
+  if (typeof result === "object") {
+    zhjwxkDebug?.(`[XK-ISO] 建链失败: ${result.error}`);
+    throw new AuthRequiredError(`选课通道登录失败：${result.error}`);
+  }
+  for (const [d, src] of [
+    ["https://webvpn.tsinghua.edu.cn/", demo.webvpnCookies],
+    ["https://id.tsinghua.edu.cn/", demo.webvpnCookies],
+    ["https://oauth.tsinghua.edu.cn/", demo.webvpnCookies],
+  ] as Array<[string, string]>) {
+    if (!src) continue;
+    for (const pair of src.split("; ")) {
+      if (/^[A-Za-z0-9_]+=.+/.test(pair)) jar.setRaw(new URL(d), `${pair}; Path=/`);
+    }
+  }
+  zhjwxkDebug?.(`[XK-ISO] 独立建链 ok（${demo.webvpnCookies.split(";").length} cookies）`);
+  isoClientCache.set(s, { http, at: Date.now() });
+  return http;
+}
+
+/** 选课流程统一取客户端：隔离通道已建→专用实例；否则全局（兼容老路径） */
+function xkHttp(s: ZhjwxkSession): HttpClient {
+  return isoClientCache.get(s)?.http ?? s.http;
+}
+
 /* ── 建立会话 + 学期解析（demo establishZhjwxkSession）────────────── */
 
 interface ZhjwxkEntry {
@@ -118,6 +172,10 @@ async function ensure(
   }
 
   const run = (async (): Promise<ZhjwxkEntry> => {
+  // 隔离通道优先（isoFetch 提供时）：所有请求走专用实例
+  const http = (await isoHttp(s).catch((e) => {
+    throw e;
+  })) ?? s.http;
   // demo establishZhjwxkSession：经 HttpClient 进入选课系统（自动 webvpn 包装 + 逐跳 id 桶）
   // 外层 ≤2 次尝试：webvpn 模式下首跳 xklogin 的 webvpn 票据已死时，整条 CAS 流程
   // 实际是「webvpn 重登录」——登录成功后兑付锚点落在 webvpn 门户页而非选课页
@@ -126,7 +184,7 @@ async function ensure(
   let html = "";
   let semester: string | null = null;
   for (let attempt = 1; attempt <= 2; attempt++) {
-  html = await s.http.text(ZHJWXK + "/xklogin.do");
+  html = await http.text(ZHJWXK + "/xklogin.do");
 
   // xklogin 的 SSO 不是普通 302：链会 302 到 id 电子身份的动态 auth-request 表单页
   //（JS 锚点跟跳），HTTP 客户端到不了 —— 参照 thu-info-lib roam("id")：解析该表单
@@ -142,7 +200,7 @@ async function ensure(
       // 2026-09-13 桶一致修复：去掉 direct:true——webvpn 模式下表单链在 webvpn 桶
       // 建立会话，POST 却送直连桶 cookie（空/脏）→ id 不认识 → gb2312 错误页。
       // 跟随传输模式：webvpn=包装桶，直连=直连桶（PUBLIC_HOSTS 含 id 自动直连）。
-      const res = await s.http.request(`${ID_PREFIX}/do/off/ui/auth/login/checkSingle`, {
+      const res = await http.request(`${ID_PREFIX}/do/off/ui/auth/login/checkSingle`, {
         method: "POST",
         body: new URLSearchParams({ i_rememberme: "on", fingerPrint: s.fingerprint, fingerGenPrint: "", fingerGenPrint3: "" }),
         headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
@@ -154,8 +212,8 @@ async function ensure(
       zhjwxkDebug?.(`[XK-CHECKSINGLE] st=${res.status} loc=${loc.slice(0, 80)} target=${target.slice(0, 90)}`);
       if (!target) break;   // 无票据可兑付：走表单链
       const tgt = target.startsWith("http") ? target : new URL(target, ID_PREFIX).toString();
-      await s.http.text(tgt).catch(() => {});   // 兑付票据（失败不阻断：回落表单链）
-      html = await s.http.text(ZHJWXK + "/xklogin.do");
+      await http.text(tgt).catch(() => {});   // 兑付票据（失败不阻断：回落表单链）
+      html = await http.text(ZHJWXK + "/xklogin.do");
     }
     const form = parseCasFormHtml(html, true);
     const enc = encryptPassword(s.password, form.publicKey);
@@ -176,7 +234,7 @@ async function ensure(
     });
     // 同上桶一致修复：check 跟随传输模式（原 direct:true 在 webvpn 模式送空桶
     // cookie → gb2312 错误页五连败实锤）
-    const checkHtml = await s.http.text("https://id.tsinghua.edu.cn/do/off/ui/auth/login/check", {
+    const checkHtml = await http.text("https://id.tsinghua.edu.cn/do/off/ui/auth/login/check", {
       method: "POST",
       body,
       headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
@@ -200,7 +258,7 @@ async function ensure(
         }
       }
       zhjwxkDebug?.(`[XK-ANCHOR] 兑付=${target.slice(0, 130)}`);
-      const landed = await s.http.text(target).catch(() => "");
+      const landed = await http.text(target).catch(() => "");
       zhjwxkDebug?.(`[XK-ANCHOR] 落地 len=${landed.length} 页首=${landed.slice(0, 200).replace(/\s+/g, " ")}`);
       // 关键：兑付后不得重打 xklogin.do——那是登录入口，重打会重开 auth 流程弹回
       // id 表单（10:22 实证：兑付已落地真页面，重打又弹回去）。会话已在 jar，直接用。
@@ -254,7 +312,7 @@ function isXkDeadHtml(html: string): boolean {
 }
 
 async function proxyZhjwxkApi(s: ZhjwxkSession, entry: ZhjwxkEntry, zhjwxkPath: string): Promise<string> {
-  const html = await s.http.text(ZHJWXK + zhjwxkPath);
+  const html = await xkHttp(s).text(ZHJWXK + zhjwxkPath);
   if (!isXkDeadHtml(html)) {
     entry.at = Date.now();
     return html;
@@ -266,7 +324,7 @@ async function proxyZhjwxkApi(s: ZhjwxkSession, entry: ZhjwxkEntry, zhjwxkPath: 
   // 但一帧内 3-4 条链仍拖慢自愈）
   if (Date.now() - lastXkReloginAt > 8_000) entryCache.delete(s);
   await ensure(s);
-  const retried = await s.http.text(ZHJWXK + zhjwxkPath);
+  const retried = await xkHttp(s).text(ZHJWXK + zhjwxkPath);
   entry.at = Date.now();
   return retried;
 }
@@ -789,7 +847,7 @@ async function postZhjwxkApi(
   path: string,
   form: Record<string, string>,
 ): Promise<string> {
-  const html = await s.http.text(ZHJWXK + path, {
+  const html = await xkHttp(s).text(ZHJWXK + path, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(form).toString(),
@@ -1458,7 +1516,7 @@ export async function getXkCourseDetail(
 ): Promise<XkCourseDetail | null> {
   await ensure(s);
   const url = `/js.vjsKcbBs.do?m=showToXs&p_id=${encodeURIComponent(`${opts.teacherId};${opts.code}`)}`;
-  const html = await s.http.text(ZHJWXK + url);
+  const html = await xkHttp(s).text(ZHJWXK + url);
   if (!html.includes("table")) return null;
   const fields: Record<string, string> = {};
   const skip = new Set(["课程名", "课程号"]);
@@ -1558,7 +1616,7 @@ export interface XkLevelTableRow {
 export async function getXkLevelTable(s: ZhjwxkSession, opts: { semester: string }): Promise<Record<string, XkLevelTableRow>> {
   await ensure(s, opts.semester);
   // pathContent 为中文参数：GBK 编码（UTF-8 直发服务端解乱码，取不到一级课表页）
-  const html = await s.http.text(`${ZHJWXK}/xkBks.vxkBksXkbBs.do?p_xnxq=${encodeURIComponent(opts.semester)}&pathContent=${gbkPercentEncode("一级课表")}`);
+  const html = await xkHttp(s).text(`${ZHJWXK}/xkBks.vxkBksXkbBs.do?p_xnxq=${encodeURIComponent(opts.semester)}&pathContent=${gbkPercentEncode("一级课表")}`);
   const map: Record<string, XkLevelTableRow> = {};
   const rowRe = /<tr[^>]*class="trr2"[^>]*>([\s\S]*?)<\/tr>/g;
   let m: RegExpExecArray | null;

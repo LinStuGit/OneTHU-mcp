@@ -165,10 +165,17 @@ console.log(`[probe] webvpn桶=${dump.map((c) => c.name).join(",") || "空"}`);
 const dumpId = jar.getCookies(new URL("https://id.tsinghua.edu.cn/"));
 console.log(`[probe] id桶=${dumpId.map((c) => c.name).join(",") || "空"}`);
 
-console.log("\n[probe] ② zhjwxk 建链…");
+console.log("\n[probe] ② zhjwxk 建链（真实 ensure 路径 + isoFetch 隔离通道）…");
 const t0 = Date.now();
 try {
-  const courses = await getSelectedCourses({ http, username: cred.username, password, fingerprint } as Parameters<typeof getSelectedCourses>[0]);
+  const courses = await getSelectedCourses({
+    http,
+    username: cred.username,
+    password,
+    fingerprint,
+    isoFetch: hopFetch,
+    finger3,
+  } as Parameters<typeof getSelectedCourses>[0]);
   console.log(`\n[probe] ✅ 选课链通了！已选 ${courses.length} 门 (${Date.now() - t0}ms)`);
 } catch (err) {
   console.log(`\n[probe] ❌ 选课链死：${String(err)} (${Date.now() - t0}ms)`);

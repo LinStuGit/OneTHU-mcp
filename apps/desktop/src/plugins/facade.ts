@@ -519,7 +519,7 @@ async function xkSession(): Promise<import("@onethu/core").ZhjwxkSession> {
   if (_xkSession && _xkSession.username === cred.username && _xkSession.password === cred.password) {
     return _xkSession;
   }
-  _xkSession = { http, username: cred.username, password: cred.password, fingerprint: await currentFingerprint() };
+  _xkSession = { http, username: cred.username, password: cred.password, fingerprint: await currentFingerprint(), isoFetch: universalFetch, finger3: await (await import("../lib/clients.js")).loadFinger3Safe() };
   return _xkSession;
 }
 
