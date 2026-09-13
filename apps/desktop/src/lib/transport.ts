@@ -133,7 +133,7 @@ async function serializeFormData(
   return { textBody: null, b64Body: btoa(bin), contentType };
 }
 
-async function tauriFetch(url: string, init: RequestInit = {}): Promise<Response> {
+export async function tauriFetch(url: string, init: RequestInit = {}): Promise<Response> {
   let currentUrl = url;
   let method = (init.method ?? "GET").toUpperCase();
   let body = typeof init.body === "string" ? init.body : undefined;

@@ -1,7 +1,7 @@
 /** 校园数据钩子：真实模式取自 @onethu/core；演示模式返回 demo 数据（界面明确标注）。 */
 import { confirmOk, confirmDanger } from "../lib/confirm.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { universalFetch } from "../lib/transport.js";
+import { tauriFetch, universalFetch } from "../lib/transport.js";
 import type { XkCourseDetail, ZhjwxkSession, BasicUserInfo, CalendarData, CalendarSemester, CardInfo, CardTransaction, CourseFile, CourseInfo, DeadlineItem, ExamEntry, Homework, NewsItem, Notification, QueueCandidate, ReportRow, ScheduleEntry, SelectedCourse, SemesterInfo, XkCourse, XkFlag, XkLevelTableRow, XkQueueInfo, XkSelectedRow, XkVolInfo } from "@onethu/core";
 import {
   fetchXkVolunteerByDept,
@@ -607,7 +607,7 @@ function xkSession(): ZhjwxkSession {
     // 需求锁死在本模块内，不污染全局会话桶（seedJar 拆条事故定案）
     // 2026-09-13 深夜：选课通道切换 nextthuxk 平铺引擎（NextTHUxk-server 生产验证语义）——
     // 直连一切+平铺 cookie+手动跟跳，替代 universalFetch（webvpn 包装链）
-    xkSessionSingleton = { http, username: c.username, password: c.password, fingerprint: c.fingerprint, isoFetch: makeNtFetchFactory()(http.jar), finger3: session.finger3 };
+    xkSessionSingleton = { http, username: c.username, password: c.password, fingerprint: c.fingerprint, isoFetch: makeNtFetchFactory(tauriFetch)(http.jar), finger3: session.finger3 };
   }
   return xkSessionSingleton;
 }

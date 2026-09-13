@@ -48,7 +48,7 @@ export interface ZhjwxkSession {
   /** 选课隔离通道（2026-09-13）：提供时 ensure 走专用 HttpClient+自管 jar
    *  +独立 demoLogin 建链——webvpn 桶污染不进全局会话（seedJar 拆条事故定案：
    *  选课的多域 cookie 需求只能在自己罐子里满足，爆炸半径锁死本模块）。 */
-  readonly isoFetch?: (url: string, init?: RequestInit) => Promise<Response>;
+  readonly isoFetch?: (input: URL | RequestInfo | string, init?: RequestInit) => Promise<Response>;
   /** 受信设备三段指纹（demoLogin 免 2FA 用；缺省时隔离通道可能被要求 2FA */
   readonly finger3?: string;
 }

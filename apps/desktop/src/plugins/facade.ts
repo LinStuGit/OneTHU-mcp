@@ -1,7 +1,7 @@
 /** 插件门面：把应用原子操作按权限包装成 onethu.* 公共接口 */
 import { info, learn, http, loadRemembered, currentFingerprint } from "../lib/clients.js";
-import { InfoClient, caldav } from "@onethu/core";
-import { universalFetch } from "../lib/transport.js";
+import { InfoClient, caldav, makeNtFetchFactory } from "@onethu/core";
+import { tauriFetch, universalFetch } from "../lib/transport.js";
 import { navGo, sessionStatus } from "./bridges.js";
 import { venueClient } from "../lib/venue.js";
 import { openExternal } from "../pages/info/openExternal.js";
@@ -519,7 +519,8 @@ async function xkSession(): Promise<import("@onethu/core").ZhjwxkSession> {
   if (_xkSession && _xkSession.username === cred.username && _xkSession.password === cred.password) {
     return _xkSession;
   }
-  _xkSession = { http, username: cred.username, password: cred.password, fingerprint: await currentFingerprint(), isoFetch: universalFetch, finger3: await (await import("../lib/clients.js")).loadFinger3Safe() };
+  // 2026-09-13 深夜：nextthuxk 平铺引擎（NextTHUxk-server 生产验证语义）
+  _xkSession = { http, username: cred.username, password: cred.password, fingerprint: await currentFingerprint(), isoFetch: makeNtFetchFactory(tauriFetch)(http.jar), finger3: await (await import("../lib/clients.js")).loadFinger3Safe() };
   return _xkSession;
 }
 

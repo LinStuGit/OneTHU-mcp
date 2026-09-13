@@ -37,6 +37,8 @@ function gbkDecode(buf: ArrayBuffer, contentType: string | null): string {
 export class Nt {
   jar: Record<string, string> = {};
   log?: (m: string) => void;
+  /** WebView 内必须注入 tauriFetch（裸 fetch 会 CORS/混合内容拦截） */
+  fetchImpl: (url: string, init?: RequestInit) => Promise<Response> = globalThis.fetch.bind(globalThis);
   cookieHeader(): string {
     return Object.entries(this.jar).map(([k, v]) => `${k}=${v}`).join("; ");
   }
@@ -53,7 +55,7 @@ export class Nt {
     let cur = url;
     for (let i = 0; i < maxHops; i++) {
       this.log?.(`[NT-HOP] GET ${cur.slice(0, 90)}`);
-      const res = await fetch(cur, { redirect: "manual", headers: { "User-Agent": UA, Cookie: this.cookieHeader() } });
+      const res = await this.fetchImpl(cur, { redirect: "manual", headers: { "User-Agent": UA, Cookie: this.cookieHeader() } });
       this.save(res);
       if ([301, 302, 307, 308].includes(res.status)) {
         const loc = res.headers.get("location") ?? "";
@@ -68,7 +70,7 @@ export class Nt {
   }
   async postForm(url: string, form: Record<string, string>): Promise<{ finalUrl: string; res: Response; text: string }> {
     const body = Object.entries(form).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
-    const res = await fetch(url, {
+    const res = await this.fetchImpl(url, {
       method: "POST",
       redirect: "manual",
       headers: { "User-Agent": UA, Cookie: this.cookieHeader(), "Content-Type": "application/x-www-form-urlencoded" },
@@ -141,11 +143,15 @@ export async function nextthuxkLogin(opts: {
  * - POST→302 转 GET、GBK 解码、x-onethu 头保持与 http.ts 的既有联动
  * - 种子：调用方传入的罐（iso 拷贝）里的 webvpn+id cookie 平铺合并
  */
-export function makeNtFetchFactory(): (
+export function makeNtFetchFactory(
+  /** WebView 内传 tauriFetch（无 CORS、支持 manual 跳转+set-cookie） */
+  fetchImpl?: (url: string, init?: RequestInit) => Promise<Response>,
+): (
   jar: { getCookies(u: URL): Array<{ name: string; value: string }> },
-) => (url: string, init?: RequestInit) => Promise<Response> {
-  return (jar) => {
+) => (input: URL | RequestInfo | string, init?: RequestInit) => Promise<Response> {
+  return (jar: { getCookies(u: URL): Array<{ name: string; value: string }> }) => {
     const nt = new Nt();
+    if (fetchImpl) nt.fetchImpl = fetchImpl;
     let seeded = false;
     const seed = (j: { getCookies(u: URL): Array<{ name: string; value: string }> }) => {
       if (seeded) return;
@@ -154,11 +160,12 @@ export function makeNtFetchFactory(): (
         for (const c of j.getCookies(new URL(b))) nt.jar[c.name] = c.value;
       }
     };
-    return async (url: string, init?: RequestInit): Promise<Response> => {
+    return async (input: URL | RequestInfo | string, init?: RequestInit): Promise<Response> => {
       seed(jar);
       const hopRecords: Array<{ u: string; l: string }> = [];
       // 上游可能传来包装 URL（iso client 带 webVPNEncoder）：解回直连（nt 语义=直连一切）
-      let cur = decodeUrl(url) ?? url;
+      const rawUrl = typeof input === "string" ? input : input.toString();
+      let cur = decodeUrl(rawUrl) ?? rawUrl;
       let method = (init?.method ?? "GET").toUpperCase();
       let body = init?.body;
       let finalRes: Response | null = null;
@@ -166,7 +173,7 @@ export function makeNtFetchFactory(): (
       for (let i = 0; i < 15; i++) {
         const headers: Record<string, string> = { "User-Agent": UA, Cookie: nt.cookieHeader() };
         if (body !== undefined && method === "POST") headers["Content-Type"] = "application/x-www-form-urlencoded";
-        const res = await fetch(cur, { method, redirect: "manual", headers, body });
+        const res = await nt.fetchImpl(cur, { method, redirect: "manual", headers, body });
         nt.save(res);
         for (const sc of (res.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.() ?? []) {
           hopRecords.push({ u: cur, l: sc });
