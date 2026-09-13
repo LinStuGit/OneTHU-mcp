@@ -572,27 +572,6 @@ export async function downloadLearnUrl(url: string, filename: string): Promise<s
   return invoke("download_file", { url: target, cookies: jarCookies, filename });
 }
 
-/** 图片载荷判定：mime 是 image/*，或字节魔数命中已知图片格式。
- *  downloadFiles 类附件端点常回 application/octet-stream 但字节就是
- *  JPEG/PNG（RichContent img-in 取证实锤）——只信 mime 会把真图扔掉。 */
-function looksLikeImage(mime: string | undefined, b64: string | undefined): boolean {
-  if (mime && /^image\//i.test(mime)) return (b64?.length ?? 0) >= 80;
-  if (!b64 || b64.length < 8) return false;
-  try {
-    const head = atob(b64.slice(0, 32));
-    if (head.startsWith("\xff\xd8\xff")) return true;                          // JPEG
-    if (head.startsWith("\x89PNG")) return true;                                  // PNG
-    if (head.startsWith("GIF8")) return true;                                      // GIF
-    if (head.startsWith("RIFF") && head.slice(8, 12) === "WEBP") return true;      // WebP
-    if (head.startsWith("BM")) return true;                                        // BMP
-    if (head.startsWith("\x00\x00\x01\x00")) return true;                       // ICO
-    if (head.trimStart().startsWith("<")) return false;                             // HTML 页面
-  } catch {
-    /* 解码失败按非图 */
-  }
-  return false;
-}
-
 /** 正文图片 → dataURL：webview 的 <img> 不携带应用会话 Cookie，
  *  直挂 learn 地址只会得到登录页；须由应用侧带 Cookie 抓取后内联。 */
 export async function fetchImageAsDataUrl(url: string): Promise<string> {
@@ -606,7 +585,7 @@ export async function fetchImageAsDataUrl(url: string): Promise<string> {
   // mime 守卫（2026-09-13 用户实锤「通知/作业图片渲染不出来但讨论区好」）：
   // 会话墙/404 返回 HTML，字节照样抓回来——不校验就把登录页当图片塞 <img>，
   // 静默碎图且 catch 永不触发。非 image/* 或字节过小一律按失败抛出走回退链。
-  if (!out || !looksLikeImage(out.mime, out.data)) {
+  if (!out || !/^image\//i.test(out.mime ?? "") || (out.data?.length ?? 0) < 80) {
     throw new Error(`图片直连响应非图片（mime=${out?.mime} bytes=${out.data?.length ?? 0}）`);
   }
   return `data:${out.mime};base64,${out.data}`;
@@ -660,7 +639,7 @@ export async function fetchImageByUrl(url: string, forceWrap = false): Promise<s
     url: target,
     cookies: pairs.join("; "),
   });
-  if (!out || !looksLikeImage(out.mime, out.data)) {
+  if (!out || !/^image\//i.test(out.mime ?? "") || (out.data?.length ?? 0) < 80) {
     throw new Error(`图片包装响应非图片（mime=${out?.mime} bytes=${out.data?.length ?? 0}）`);
   }
   return `data:${out.mime};base64,${out.data}`;

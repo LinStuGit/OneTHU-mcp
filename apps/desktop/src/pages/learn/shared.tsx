@@ -9,8 +9,7 @@ import { LEARN_PREFIX, LEARN_FILE_DOWNLOAD, parseLearnTime } from "@onethu/core"
 import { useApp } from "../../state/context.js";
 import { getSelectedSemester, setSelectedSemester } from "../../state/data.js";
 import { topLevelPage, type Page } from "../../state/app.js";
-import { fetchImageAsDataUrl, fetchImageByUrl, logLine } from "../../lib/clients.js";
-import { softRecover } from "../../lib/reload.js";
+import { fetchImageAsDataUrl, fetchImageByUrl } from "../../lib/clients.js";
 import { invoke } from "@tauri-apps/api/core";
 import { openFilePreview } from "../../components/FilePreview.js";
 import { openExternal } from "../info/openExternal.js";
@@ -106,9 +105,6 @@ export function gradeLabel(grade: string | number | undefined): string {
 const IMG_PLACEHOLDER =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 
-/* 取证横幅：页面加载即一行（经 logLine 带 ISO 时间戳，判读前后归属） */
-void logLine("RichContent module v3 loaded").catch(() => undefined);
-
 /** 正文图片 dataURL 会话缓存：详情页反复进出不重复抓 2MB 级大图 */
 const imgDataCache = new Map<string, string>();
 
@@ -128,72 +124,26 @@ export function RichContent({ html, fallback = "暂无内容。" }: { html?: str
 
     const grab = async (img: HTMLImageElement, raw: string): Promise<void> => {
       const abs = /^https?:\/\//i.test(raw) ? raw : new URL(raw, LEARN_PREFIX + "/").toString();
-      // 取证入口（2026-09-13：一张通知图未渲染但日志零失败——失败发生在进
-      // 入 grab 之前：src 空被静默跳过或 core 层解析已丢 img；每图一行定位层别）
-      void logLine(`RichContent img-in: ${abs.slice(0, 200)}`).catch(() => undefined);
       img.src = IMG_PLACEHOLDER; // 插入瞬间掐断 webview 原生加载（无应用 Cookie，只会得到登录页碎图）
-      // 抓取中给可见骨架（用户实锤「刚打开不显示」：隐形 1×1 占位让位子直接塌掉）
-      img.style.width = "100%";
-      img.style.minHeight = "140px";
-      img.style.background = "var(--skeleton, rgba(0,0,0,.04))";
-      img.style.borderRadius = "8px";
       try {
         const hit = imgDataCache.get(abs);
         // 三级回退（用户实锤：讨论区图片好、通知/作业碎图）：①learn 直连带
         // csrf ②按 host 分流（非公网包 webvpn；公网再试双桶 cookie 直连）
         // ③无视分流强制 webvpn 包装——learn 直连在校园网外不可达时的真终点
-        // 逐级 8s 超时（2026-09-13 二次实锤「灰色占位」：Promise 链在悬挂上
-        // 不前进——learn 直连校外不可达时 fetch_binary 永不 settle，.catch 只
-        // 在拒绝时触发，第 2/3 级从未运行；总超时只会掐死整链不会推进）。
-        // 每级各自到点即拒，链条前进：直连→分流包装→强制 webvpn。
-        const withTimeout = (p: Promise<string>, label: string): Promise<string> =>
-          Promise.race([
-            p,
-            new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`${label} 6s 超时`)), 6_000)),
-          ]);
-        // 顺序反转（2026-09-13 实测「加载很久才显示」：校外直连/分流各白等 8s
-        // 才轮到 webvpn 包装——而 webvpn 校内校外恒可达）：包装优先直连殿后，
-        // 单级 6s；缓存命中 0ms（img-ok 63ms 实测）
-        const chain = withTimeout(fetchImageByUrl(abs, true), "webvpn包装")
-          .catch((e1: unknown) => {
-            void logLine(`RichContent img-stage1-fail(包装): ${String(e1 instanceof Error ? e1.message : e1).slice(0, 120)} → 直连`).catch(() => undefined);
-            return withTimeout(fetchImageAsDataUrl(abs), "直连");
-          });
-        const dataUrl = hit ?? (await chain);
+        const dataUrl = hit
+          ?? (await fetchImageAsDataUrl(abs)
+            .catch(() => fetchImageByUrl(abs))
+            .catch(() => fetchImageByUrl(abs, true)));
         if (cancelled) return;
         if (!dataUrl) throw new Error("empty");
         if (imgDataCache.size > 60) imgDataCache.clear();
         imgDataCache.set(abs, dataUrl);
         img.src = dataUrl;
-        img.style.width = "";
-        img.style.minHeight = "";
-        img.style.background = "";
-        img.style.borderRadius = "";
-        void logLine(`RichContent img-ok: bytes=${dataUrl.length} connected=${img.isConnected}`).catch(() => undefined);
-      } catch (eFirst: unknown) {
-        // 认证墙自愈（2026-09-13 破案：44ms 瞬拒「会话已失效」——附件端点要
-        // learn 会话，单会话互踢下经常死；一次 softRecover 重建后重试一把）
-        const msg = String(eFirst instanceof Error ? eFirst.message : eFirst);
-        if (/会话已失效|登录超时|未登录/.test(msg) && !img.dataset.onethuRetried) {
-          img.dataset.onethuRetried = "1";
-          void logLine(`RichContent img-auth-heal: 触发会话自愈重试`).catch(() => undefined);
-          try {
-            if (await softRecover("learn-img")) {
-              const retry = await fetchImageByUrl(abs, true).catch(() => "");
-              if (retry && !cancelled) {
-                imgDataCache.set(abs, retry);
-                img.src = retry;
-                img.style.width = ""; img.style.minHeight = ""; img.style.background = ""; img.style.borderRadius = "";
-                void logLine(`RichContent img-ok(healed): bytes=${retry.length}`).catch(() => undefined);
-                return;
-              }
-            }
-          } catch { /* 自愈失败走正常失败路径 */ }
-        }
-        void logLine(`RichContent img-fail: ${msg.slice(0, 140)} cancelled=${cancelled} connected=${img.isConnected}`).catch(() => undefined);
+      } catch {
         if (!cancelled) {
           img.setAttribute("alt", (img.getAttribute("alt") ? img.getAttribute("alt") + " " : "") + "（图片加载失败）");
           img.style.opacity = "0.45";
+          void invoke("log_debug", { line: `RichContent 图片抓取失败: ${abs.slice(0, 180)}` }).catch(() => undefined);
         }
       }
     };
@@ -203,10 +153,7 @@ export function RichContent({ html, fallback = "暂无内容。" }: { html?: str
         if (done.has(img)) continue;
         const raw = img.getAttribute("src") ?? "";
         img.dataset.onethu = "1";
-        if (!raw || /^(data|blob):/i.test(raw)) {
-          void logLine(`RichContent img-skip: src=${JSON.stringify(raw).slice(0, 200)}`).catch(() => undefined);
-          continue;
-        }
+        if (!raw || /^(data|blob):/i.test(raw)) continue;
         done.add(img);
         void grab(img, raw);
       }
