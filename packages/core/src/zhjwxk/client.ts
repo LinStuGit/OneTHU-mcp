@@ -129,7 +129,9 @@ async function ensure(
     // 2026-09-13 凌晨实锤：xklogin 弹回间歇拿到 id="logined" 自检页，无 SM2 公钥
     // → 解析炸「无法从登录页获取 SM2 公钥」→ 选课整模块红条。浏览器靠 JS 自动
     // POST 它；手动兑付：POST checkSingle → 跟 302/锚点票据 → 重走 xklogin 落地。
-    if (/checkSingle/.test(html)) {
+    let csRounds = 0;
+    while (/checkSingle/.test(html) && csRounds < 2) {
+      csRounds += 1;
       // 2026-09-13 桶一致修复：去掉 direct:true——webvpn 模式下表单链在 webvpn 桶
       // 建立会话，POST 却送直连桶 cookie（空/脏）→ id 不认识 → gb2312 错误页。
       // 跟随传输模式：webvpn=包装桶，直连=直连桶（PUBLIC_HOSTS 含 id 自动直连）。
@@ -143,11 +145,10 @@ async function ensure(
       const pageHtml = await res.text().catch(() => "");
       const target = res.status >= 300 && res.status < 400 && loc ? loc : (/href="([^"]*ticket=[^"]*)"/i.exec(pageHtml)?.[1] ?? "");
       zhjwxkDebug?.(`[XK-CHECKSINGLE] st=${res.status} loc=${loc.slice(0, 80)} target=${target.slice(0, 90)}`);
-      if (target) {
-        const tgt = target.startsWith("http") ? target : new URL(target, ID_PREFIX).toString();
-        await s.http.text(tgt).catch(() => {});   // 兑付票据（失败不阻断：回落表单链）
-        html = await s.http.text(ZHJWXK + "/xklogin.do");
-      }
+      if (!target) break;   // 无票据可兑付：走表单链
+      const tgt = target.startsWith("http") ? target : new URL(target, ID_PREFIX).toString();
+      await s.http.text(tgt).catch(() => {});   // 兑付票据（失败不阻断：回落表单链）
+      html = await s.http.text(ZHJWXK + "/xklogin.do");
     }
     const form = parseCasFormHtml(html, true);
     const enc = encryptPassword(s.password, form.publicKey);
@@ -174,7 +175,7 @@ async function ensure(
       headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
     });
     if (!checkHtml.includes("登录成功")) {
-      zhjwxkDebug?.(`[XK-BOUNCE] direct 未成功 页首=${checkHtml.slice(0, 300).replace(/\s+/g, " ")}`);
+      zhjwxkDebug?.(`[XK-BOUNCE] 未成功 全页=${checkHtml.slice(0, 1500).replace(/\s+/g, " ")}`);
       throw new AuthRequiredError("选课系统身份确认失败，请重新登录后重试");
     }
     const anchor = /<a[^>]+href="([^"]+)"/i.exec(checkHtml)?.[1];
