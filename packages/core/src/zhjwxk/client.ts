@@ -199,7 +199,7 @@ async function ensure(
       // 跟随传输模式：webvpn=包装桶，直连=直连桶（PUBLIC_HOSTS 含 id 自动直连）。
       const res = await http.request(`${ID_PREFIX}/do/off/ui/auth/login/checkSingle`, {
         method: "POST",
-        body: new URLSearchParams({ i_rememberme: "on", fingerPrint: s.fingerprint, fingerGenPrint: "", fingerGenPrint3: "" }),
+        body: new URLSearchParams({ i_rememberme: "on", fingerPrint: s.fingerprint, fingerGenPrint: "", fingerGenPrint3: s.finger3 ?? "" }),
         headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
         redirect: "manual",
       });
@@ -226,7 +226,7 @@ async function ensure(
       sm2pass: enc,
       fingerPrint: s.fingerprint,
       fingerGenPrint: "",
-      fingerGenPrint3: "",
+      fingerGenPrint3: s.finger3 ?? "",
       i_captcha: "",
     });
     // 同上桶一致修复：check 跟随传输模式（原 direct:true 在 webvpn 模式送空桶
