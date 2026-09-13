@@ -98,7 +98,7 @@ export function PluginsPage(): ReactNode {
           2026-09-13：设置页不放，避免双头管理） */}
       {cat === "theme" || cat === "all" ? <ThemeManagerSection /> : null}
 
-      {plugins.length === 0 ? (
+      {plugins.length === 0 && cat !== "theme" ? (
         <div className="plg-empty">
           <div className="plg-empty-mark">[ · ]</div>
           <div className="plg-empty-t">机架空空如也</div>
@@ -106,6 +106,10 @@ export function PluginsPage(): ReactNode {
           <button className="btn btn-primary" onClick={() => setInstOpen(true)}>
             安装插件
           </button>
+        </div>
+      ) : plugins.length === 0 && cat === "theme" ? (
+        <div style={{ fontSize: "var(--text-sm)", color: "var(--text-3)", padding: "6px 2px" }}>
+          暂无主题插件——上方主题区即全部可用主题（内置可删可恢复）。
         </div>
       ) : (
         <div className="plg-rack">

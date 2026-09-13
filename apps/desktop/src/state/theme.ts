@@ -203,7 +203,9 @@ function applyTheme(def: ThemeDef | null): void {
     .map(([k, v]) => `${k}: ${v};`);
   if (def.fonts?.ui) varLines.push(`--font-ui: ${def.fonts.ui};`);
   if (def.fonts?.mono) varLines.push(`--font-mono: ${def.fonts.mono};`);
-  let css = `[data-theme="${def.id}"] {\n${varLines.join("\n")}\n}`;
+  // :root[data-theme] 特异度 (0,2,0) 稳压 tokens.css 的 :root (0,1,0)——
+  // 平级时输赢取决于文档顺序，vite 样式注入顺序不可依赖（用户实锤：应用后无变化）
+  let css = `:root[data-theme="${def.id}"] {\n${varLines.join("\n")}\n}`;
   if (def.css && def.css.trim()) css += `\n/* 主题附加 CSS（受信） */\n${def.css}`;
   if (!style) {
     style = document.createElement("style");
@@ -211,6 +213,7 @@ function applyTheme(def: ThemeDef | null): void {
     document.head.appendChild(style);
   }
   style.textContent = css;
+  document.head.appendChild(style);   // 重新挪到末尾：vite 后注入的样式压不过
   root.dataset.theme = def.id;
   logoSvg = def.logo && def.logo.includes("<svg") ? def.logo : null;
 }
