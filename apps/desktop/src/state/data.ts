@@ -208,7 +208,7 @@ export function invalidateLearnCache(): void {
  *  同一时刻多个数据钩子（useLearnData 各子页 / useCampusData）一起撞上
  *  AuthRequiredError 时只漫游一次（此前并发各自漫游，幂等但浪费且拉长 loading 空窗）。 */
 let roamInflight: Promise<boolean> | null = null;
-function relearnRoamOnce(): Promise<boolean> {
+export function relearnRoamOnce(): Promise<boolean> {
   if (!roamInflight) {
     roamInflight = session
       .relearnRoam()

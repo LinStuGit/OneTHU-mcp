@@ -446,26 +446,44 @@ export async function resumeSession(): Promise<boolean> {
   const remembered = await loadRemembered();
   if (remembered) session.injectCredentials(remembered.username, remembered.password);
   session.reseed();
-  let okLearn = await learn.resume().catch((e) => {
-    logLine("RESUME learn-error " + String(e)).catch(() => undefined);
-    return false;
-  });
-  if (!okLearn) {
-    // learn 漫游会话约 8 分钟过期是常态：用持久化的 id CAS 主会话重新发票→漫游（免密）
-    await logLine("RESUME learn 直连失效 → 尝试 id 主会话重漫游").catch(() => undefined);
-    okLearn = await session.relearnRoam();
-    if (okLearn) {
-      await persist(); // 重漫游刷新了 demo 字符串（新 learn 会话），回写供下次 resume
-    }
-  }
-  if (!okLearn) {
-    await logLine("RESUME fail (learn.csrf 不可用，重漫游也未成)" + "\n" + session.debugLog.join("\n"));
-    return false;
-  }
-  session.state = "ready";
-  await info.resume().catch(() => false);
-  await logLine("RESUME ok\n" + session.debugLog.join("\n"));
+  /* 启动瘦身（2026-09-13，对齐 thu-info 启动语义）：此前启动串行等
+   * learn.resume（漫游会话 8 分钟过期=冷启动几乎必过期）→ 失败再全量
+   * 重漫游/重登录——移动端 15-20 跳 10-20s。现改为：水合即 ready（0 跳），
+   * learn/info 预热转后台；数据层自带漫游+预算重试+softRecover 自愈。
+   * 会话全死（id 也过期）由后台预热链回调翻回登录页——常见情形启动即进
+   * 主界面（缓存数据），learn 首次访问时惰性漫游（与 thu-info 同语义）。 */
+  void warmUpAfterResume();
   return true;
+}
+
+/** 启动后台预热：learn 漫游 + info 会话 + 全死回调。全部失败才翻登录页。 */
+let bootDeadHandler: (() => void) | null = null;
+export function setBootDeadHandler(fn: (() => void) | null): void {
+  bootDeadHandler = fn;
+}
+async function warmUpAfterResume(): Promise<void> {
+  try {
+    let okLearn = await learn.resume().catch((e) => {
+      logLine("RESUME learn-error " + String(e)).catch(() => undefined);
+      return false;
+    });
+    if (!okLearn) {
+      await logLine("RESUME learn 直连失效 → 后台重漫游").catch(() => undefined);
+      const { relearnRoamOnce } = await import("../state/data.js");
+      okLearn = await relearnRoamOnce();
+      if (okLearn) await persist();
+    }
+    if (!okLearn) {
+      await logLine("RESUME 后台预热失败（会话全死）→ 翻登录页" + "\n" + session.debugLog.join("\n"));
+      bootDeadHandler?.();
+      return;
+    }
+    session.state = "ready";
+    await info.resume().catch(() => false);
+    await logLine("RESUME ok(后台)\n" + session.debugLog.join("\n"));
+  } catch {
+    /* 预热异常不阻塞主流程 */
+  }
 }
 
 /** 是否存在「曾登录」的会话快照（显式 logout 会清空，防止 boot 静默重登顶替登出） */
