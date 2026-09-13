@@ -57,36 +57,50 @@ const BUILTIN_THEMES: ThemeDef[] = [
   {
     id: "onethu.theme.violet",
     name: "紫水晶",
-    version: "1.0.0",
+    version: "1.1.0",
     author: "OneTHU",
-    description: "紫罗兰强调 + 淡雾紫晕染的交互层。",
+    description: "紫罗兰主按钮 + 雾紫晕染的纸面。",
     vars: {
+      "--primary": "#6d28d9",
+      "--primary-hover": "#5b21b6",
       "--accent": "#7c3aed",
-      "--accent-soft": "#f4edfe",
-      "--accent-border": "#dcc9f9",
-      "--hover": "rgba(76, 49, 125, 0.06)",
-      "--active": "rgba(76, 49, 125, 0.1)",
-      "--ring": "0 0 0 3px rgba(124, 58, 237, 0.22)",
-      "--bg-soft": "#fbfaff",
-      "--surface-2": "#f8f6fd",
+      "--accent-soft": "#f1e7fd",
+      "--accent-border": "#d8c2f7",
+      "--hover": "rgba(88, 28, 135, 0.07)",
+      "--active": "rgba(88, 28, 135, 0.12)",
+      "--ring": "0 0 0 3px rgba(109, 40, 217, 0.25)",
+      "--bg": "#fbfaff",
+      "--bg-soft": "#f6f1fe",
+      "--surface": "#fefeff",
+      "--surface-2": "#f3ecfc",
+      "--surface-3": "#e8dcf7",
+      "--border": "rgba(88, 28, 135, 0.13)",
+      "--text-1": "#1e1432",
     },
     source: "builtin",
   },
   {
     id: "onethu.theme.celadon",
     name: "青瓷",
-    version: "1.0.0",
+    version: "1.1.0",
     author: "OneTHU",
-    description: "青绿强调、瓷面冷调，水色融入软底。",
+    description: "青绿主按钮 + 瓷面水色的冷调。",
     vars: {
-      "--accent": "#0e9384",
-      "--accent-soft": "#e6f5f2",
-      "--accent-border": "#bfe5df",
-      "--hover": "rgba(14, 105, 97, 0.06)",
-      "--active": "rgba(14, 105, 97, 0.1)",
-      "--ring": "0 0 0 3px rgba(14, 147, 132, 0.22)",
-      "--bg-soft": "#f8fbfa",
-      "--surface-2": "#f2f8f6",
+      "--primary": "#0f766e",
+      "--primary-hover": "#115e59",
+      "--accent": "#0d9488",
+      "--accent-soft": "#e0f4f1",
+      "--accent-border": "#b8e2db",
+      "--hover": "rgba(13, 90, 84, 0.07)",
+      "--active": "rgba(13, 90, 84, 0.12)",
+      "--ring": "0 0 0 3px rgba(15, 118, 110, 0.25)",
+      "--bg": "#f9fcfb",
+      "--bg-soft": "#f0f7f5",
+      "--surface": "#fdfffe",
+      "--surface-2": "#edf5f2",
+      "--surface-3": "#dcebe6",
+      "--border": "rgba(15, 90, 84, 0.14)",
+      "--text-1": "#10251f",
     },
     source: "builtin",
   },
@@ -112,21 +126,25 @@ const BUILTIN_THEMES: ThemeDef[] = [
   {
     id: "onethu.theme.midnight",
     name: "墨蓝夜航",
-    version: "1.0.0",
+    version: "1.1.0",
     author: "OneTHU",
-    description: "深海军蓝强调 + 冷雾蓝灰阶：夜航仪表盘的冷静。",
+    description: "海军蓝主按钮 + 冷雾蓝灰阶：夜航仪表盘。",
     vars: {
-      "--accent": "#1d4ed8",
-      "--accent-soft": "#e8eefb",
-      "--accent-border": "#bcd0f3",
-      "--hover": "rgba(29, 58, 113, 0.07)",
-      "--active": "rgba(29, 58, 113, 0.12)",
-      "--ring": "0 0 0 3px rgba(29, 78, 216, 0.24)",
-      "--bg": "#fcfdff",
-      "--bg-soft": "#f5f7fb",
-      "--surface": "#ffffff",
-      "--surface-2": "#f0f3f9",
-      "--surface-3": "#e3e8f1",
+      "--primary": "#1e3a8a",
+      "--primary-hover": "#1e40af",
+      "--accent": "#2563eb",
+      "--accent-soft": "#e3ecfd",
+      "--accent-border": "#b9cdf5",
+      "--hover": "rgba(30, 58, 138, 0.07)",
+      "--active": "rgba(30, 58, 138, 0.12)",
+      "--ring": "0 0 0 3px rgba(30, 64, 175, 0.25)",
+      "--bg": "#f7f9fd",
+      "--bg-soft": "#f1f5fb",
+      "--surface": "#fdfeff",
+      "--surface-2": "#eef2f9",
+      "--surface-3": "#dde5f2",
+      "--border": "rgba(30, 58, 138, 0.14)",
+      "--text-1": "#101828",
     },
     source: "builtin",
   },
@@ -185,6 +203,19 @@ function bootstrap(): void {
     state.installed = [...seeds, ...state.installed];
     persist();
   }
+  // 内置升级通道：已安装的内置主题若与随版本分发的新定义版本不同，整体
+  // 刷新为新定义（用户改不掉内置的"出厂设置"，但删除名单依然生效）
+  let upgraded = false;
+  const shipped = new Map(BUILTIN_THEMES.map((b) => [b.id, b]));
+  state.installed = state.installed.map((t) => {
+    const fresh = shipped.get(t.id);
+    if (fresh && t.source === "builtin" && t.version !== fresh.version) {
+      upgraded = true;
+      return fresh;
+    }
+    return t;
+  });
+  if (upgraded) persist();
   applyActive();
 }
 
