@@ -10,7 +10,7 @@ import { useApp } from "../../state/context.js";
 import { getSelectedSemester, setSelectedSemester } from "../../state/data.js";
 import { topLevelPage, type Page } from "../../state/app.js";
 import { fetchImageAsDataUrl, fetchImageByUrl, logLine } from "../../lib/clients.js";
-import { softRecover } from "../../state/data.js";
+import { softRecover } from "../../lib/reload.js";
 import { invoke } from "@tauri-apps/api/core";
 import { openFilePreview } from "../../components/FilePreview.js";
 import { openExternal } from "../info/openExternal.js";
