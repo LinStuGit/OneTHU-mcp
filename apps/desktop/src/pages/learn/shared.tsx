@@ -157,11 +157,13 @@ export function RichContent({ html, fallback = "暂无内容。" }: { html?: str
         if (imgDataCache.size > 60) imgDataCache.clear();
         imgDataCache.set(abs, dataUrl);
         img.src = dataUrl;
-      } catch {
+        void invoke("log_debug", { line: `RichContent img-ok: bytes=${dataUrl.length} connected=${img.isConnected}` }).catch(() => undefined);
+      } catch (eFinal: unknown) {
+        // 无条件留痕：cancelled 分支曾吞掉所有取证（img-in 后无声无息的真相候选）
+        void invoke("log_debug", { line: `RichContent img-fail: ${String(eFinal instanceof Error ? eFinal.message : eFinal).slice(0, 140)} cancelled=${cancelled} connected=${img.isConnected}` }).catch(() => undefined);
         if (!cancelled) {
           img.setAttribute("alt", (img.getAttribute("alt") ? img.getAttribute("alt") + " " : "") + "（图片加载失败）");
           img.style.opacity = "0.45";
-          void invoke("log_debug", { line: `RichContent 图片抓取失败: ${abs.slice(0, 180)}` }).catch(() => undefined);
         }
       }
     };
