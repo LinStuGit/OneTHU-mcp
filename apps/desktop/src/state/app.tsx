@@ -198,7 +198,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void (async () => {
       let ok = false;
       try {
-        ok = await clients.resumeSession();
+        // 看门狗（2026-09-13 蜂窝实锤「死在恢复会话」零日志悬挂）：启动门
+        // 10s 必开——resume 链任何请求悬挂时强制放行，走静默重登/登录页，
+        // 绝不无限转圈。成功路径完全不受影响（实测正常恢复 <1s）。
+        ok = await Promise.race([
+          clients.resumeSession(),
+          new Promise<false>((res) => setTimeout(() => res(false), 10_000)),
+        ]);
       } catch {
         ok = false;
       }
@@ -210,8 +216,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
       // 恢复失败（learn/id 会话过期是常态）且勾选了记住密码 → 静默重登一次，免输密码
+      // 同款看门狗 15s：重登链悬挂时放行到登录页（用户手点也不至于困死）
       const TS = Date.now();
-      const silent = await clients.trySilentRelogin().catch(() => false);
+      const silent = await Promise.race([
+        clients.trySilentRelogin().catch(() => false),
+        new Promise<false>((res) => setTimeout(() => res(false), 15_000)),
+      ]);
       void import("../lib/clients.js").then(({ logLine }) =>
         logLine(`BOOT-T trySilentRelogin(${silent ? "成功" : "失败"}) +${Date.now() - TS}ms`),
       ).catch(() => undefined);
