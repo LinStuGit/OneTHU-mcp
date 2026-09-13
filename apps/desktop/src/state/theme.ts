@@ -144,8 +144,12 @@ interface PersistShape {
 let state: PersistShape = { installed: [], activeId: null, deletedBuiltins: [] };
 let logoSvg: string | null = null;
 const listeners = new Set<() => void>();
+/** getSnapshot 缓存：useSyncExternalStore 要求引用稳定，每次新建对象
+ *  会触发无限重渲染循环（React getSnapshot cache 契约）——白屏实锤 */
+let snapCache: ThemeSnapshot | null = null;
 
 function emit(): void {
+  snapCache = null;
   for (const fn of listeners) fn();
 }
 
@@ -222,7 +226,8 @@ bootstrap();
 /* ---------- 公开 API ---------- */
 
 function snapshot(): ThemeSnapshot {
-  return { themes: state.installed, activeId: state.activeId, logoSvg, deletedBuiltins: state.deletedBuiltins };
+  snapCache ??= { themes: [...state.installed], activeId: state.activeId, logoSvg, deletedBuiltins: [...state.deletedBuiltins] };
+  return snapCache;
 }
 
 export function subscribeThemes(fn: () => void): () => void {
