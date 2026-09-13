@@ -462,16 +462,10 @@ export class CampusSession {
       ["https://card.tsinghua.edu.cn/", this.#cardEraCookies || this.#demo.webvpnCookies],
     ];
     for (const [d, source] of domains) {
+      // 2026-09-13 回滚：逐条拆入把整串 cookie 灌进每个域桶（id 的 JSESSIONID 混入
+      // webvpn/info 桶）→ 跨域会话互踩 → 登录后 70ms 会话即死、重登无限循环（真机
+      // 09:33 实录）。era 快照体系的存在就是因为扁平共享有毒；恢复原单条语义。
       const url = new URL(d);
-      // 2026-09-13 修复：整串多 cookie 塞 setRaw 只活第一条（parseSetCookieLine
-      // 语义=单条 Set-Cookie）。登录后 webvpn 桶长期缺票 → 首批包装请求全被弹去
-      // 重登舞（蜂窝 XK-DANCE 每 2s 一轮的共因）。逐条拆入（同 #489 行姿势）。
-      if (source && source.includes("; ")) {
-        for (const pair of source.split("; ")) {
-          if (/^[A-Za-z0-9_]+=.+/.test(pair)) this.http.jar.setRaw(url, `${pair}; Path=/`);
-        }
-        continue;
-      }
       for (const pair of source.split(";")) {
         const t = pair.trim();
         if (!t || !t.includes("=")) continue;
