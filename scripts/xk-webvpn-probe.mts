@@ -16,6 +16,7 @@ import {
 } from "../packages/core/src/index.js";
 import { demoLogin, newDemoSession } from "../packages/core/src/auth/demoLogin.js";
 import { getSelectedCourses, setZhjwxkDebug } from "../packages/core/src/zhjwxk/client.js";
+import { makeNtFetchFactory } from "../packages/core/src/zhjwxk/nextthuxk.js";
 
 const STATE = join(homedir(), "Library/Application Support/app.onethu.desktop/state");
 const SECRET_MAGIC = "onethu-secret-v1:";
@@ -174,6 +175,7 @@ try {
     password,
     fingerprint,
     isoFetch: hopFetch,
+    isoFetchFactory: process.env.XK_NEXT === "1" ? makeNtFetchFactory() : undefined,
     finger3,
   } as Parameters<typeof getSelectedCourses>[0]);
   console.log(`\n[probe] ✅ 选课链通了！已选 ${courses.length} 门 (${Date.now() - t0}ms)`);

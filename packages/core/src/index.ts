@@ -181,6 +181,7 @@ export type {
   XkWriteResult,
   XkFlag,
 } from "./zhjwxk/client.js";
+export { makeNtFetchFactory, nextthuxkLogin, Nt } from "./zhjwxk/nextthuxk.js";
 
 export { LEARN_FILE_DOWNLOAD, LEARN_PREFIX } from "./learn/urls.js";
 export { setWebvpnLog } from "./auth/demoLogin.js";

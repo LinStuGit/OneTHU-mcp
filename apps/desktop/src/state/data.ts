@@ -26,6 +26,7 @@ import {
   // fetchXkRatings,   // 【教评#31冻结】
   // type XkRatingRow,
   type XkVolRow,
+  makeNtFetchFactory,
 } from "@onethu/core";
 
 // 解析取证（教师格"3"悬案）：目录行教师格纯数字 → 原始行 HTML 进日志，一次定位
@@ -604,7 +605,9 @@ function xkSession(): ZhjwxkSession {
     const c = session.xkCredentials;
     // 隔离通道（2026-09-13）：选课专用 HttpClient+自管 jar，webvpn 多域 cookie
     // 需求锁死在本模块内，不污染全局会话桶（seedJar 拆条事故定案）
-    xkSessionSingleton = { http, username: c.username, password: c.password, fingerprint: c.fingerprint, isoFetch: universalFetch, finger3: session.finger3 };
+    // 2026-09-13 深夜：选课通道切换 nextthuxk 平铺引擎（NextTHUxk-server 生产验证语义）——
+    // 直连一切+平铺 cookie+手动跟跳，替代 universalFetch（webvpn 包装链）
+    xkSessionSingleton = { http, username: c.username, password: c.password, fingerprint: c.fingerprint, isoFetch: makeNtFetchFactory()(http.jar), finger3: session.finger3 };
   }
   return xkSessionSingleton;
 }
