@@ -314,7 +314,14 @@ export class HttpClient {
     }
     let goDirect = direct === true;
     if (!goDirect && host) {
-      goDirect = this.#webVPN ? host === "learn.tsinghua.edu.cn" : PUBLIC_HOSTS.has(host);
+      // 2026-09-13 数据网络实锤修复：webvpn 模式此前只放行 learn 直连，id/oauth
+      // 的 redirect 跟跳被 webvpn 包装 → 选课 SM2 表单拿到包装变体页（解析炸
+      // 「无法从登录页获取 SM2 公钥」）+ 启动/重登链每跳绕代理。id/oauth 是
+      // 公网登录链域（登录链 direct:true 路径常年直连验证安全），与 learn 同放行；
+      // 真内网域（info/zhjwxk.cic 等）维持 webvpn 包装不变。
+      goDirect = this.#webVPN
+        ? host === "learn.tsinghua.edu.cn" || host === "id.tsinghua.edu.cn" || host === "oauth.tsinghua.edu.cn"
+        : PUBLIC_HOSTS.has(host);
     }
     const target = this.webVPNEncoder && !goDirect && host && !PUBLIC_HOSTS.has(host)
       ? this.webVPNEncoder(url)

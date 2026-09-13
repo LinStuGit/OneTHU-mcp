@@ -104,7 +104,12 @@ export interface OtpForm {
 export function parseCasFormHtml(formHtml: string, viaWebVPN: boolean): CasFormInfo {
   const publicKey = extractByEnv(formHtml, "sm2publicKey");
   if (!publicKey || !/^[0-9a-fA-F]+$/.test(publicKey)) {
-    throw new CasError("无法从登录页获取 SM2 公钥（页面结构可能已变更）");
+    // 失败现场落页首（2026-09-13 蜂窝/webvpn 变体定位：手机端首次踩到提取失败，
+    // 需要看到实际返回的页面才能补齐变体——webvpn 包装下可能出现新页面形态）
+    throw new CasError(
+      "无法从登录页获取 SM2 公钥（页面结构可能已变更） 页首=" +
+        formHtml.slice(0, 400).replace(/\s+/g, " "),
+    );
   }
   const formAction =
     /<form[^>]*id="theform"[^>]*action="([^"]*)"/.exec(formHtml)?.[1] ??

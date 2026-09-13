@@ -145,6 +145,14 @@ http.webVPNEncoder = webvpnWrap;
 http.debug = (line) => void logLine(line);
 // 重定向链逐跳日志：定位教务漫游链在哪一跳断掉（CAS 票据流/登录页）
 setHopLogger((hopUrl, status) => void logLine(`[HOP] ${status} ${hopUrl.slice(0, 220)}`));
+// 选课现场取证（zhjwxkDebug 钩子此前未接线——SM2 失败只有异常没有现场）
+void (async () => {
+  try {
+    const core = await import("@onethu/core");
+    const setZhjwxkDebug = (core as unknown as { setZhjwxkDebug?: (fn: (l: string) => void) => void }).setZhjwxkDebug;
+    setZhjwxkDebug?.((line: string) => void logLine(`XK-D bg ${line}`).catch(() => undefined));
+  } catch { /* noop */ }
+})();
 
 setZhjwxkDebug((line) => void logLine(line));
 setWebvpnLog((line) => void logLine(line));
