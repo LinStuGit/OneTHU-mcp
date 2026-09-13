@@ -143,16 +143,15 @@ export function RichContent({ html, fallback = "暂无内容。" }: { html?: str
         const withTimeout = (p: Promise<string>, label: string): Promise<string> =>
           Promise.race([
             p,
-            new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`${label} 8s 超时`)), 8_000)),
+            new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`${label} 6s 超时`)), 6_000)),
           ]);
-        const chain = withTimeout(fetchImageAsDataUrl(abs), "直连")
+        // 顺序反转（2026-09-13 实测「加载很久才显示」：校外直连/分流各白等 8s
+        // 才轮到 webvpn 包装——而 webvpn 校内校外恒可达）：包装优先直连殿后，
+        // 单级 6s；缓存命中 0ms（img-ok 63ms 实测）
+        const chain = withTimeout(fetchImageByUrl(abs, true), "webvpn包装")
           .catch((e1: unknown) => {
-            void logLine(`RichContent img-stage1-fail: ${String(e1 instanceof Error ? e1.message : e1).slice(0, 120)} → 分流`).catch(() => undefined);
-            return withTimeout(fetchImageByUrl(abs), "分流");
-          })
-          .catch((e2: unknown) => {
-            void logLine(`RichContent img-stage2-fail: ${String(e2 instanceof Error ? e2.message : e2).slice(0, 120)} → 强制包装`).catch(() => undefined);
-            return withTimeout(fetchImageByUrl(abs, true), "强制包装");
+            void logLine(`RichContent img-stage1-fail(包装): ${String(e1 instanceof Error ? e1.message : e1).slice(0, 120)} → 直连`).catch(() => undefined);
+            return withTimeout(fetchImageAsDataUrl(abs), "直连");
           });
         const dataUrl = hit ?? (await chain);
         if (cancelled) return;
