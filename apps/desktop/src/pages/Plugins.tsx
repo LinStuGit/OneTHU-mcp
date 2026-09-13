@@ -37,6 +37,7 @@ export function PluginsPage(): ReactNode {
   const cmds = useSyncExternalStore(subscribeCommands, commandsSnapshot);
   const [cat, setCat] = useState<"all" | "theme" | "general">("all");
   const [instOpen, setInstOpen] = useState(false);
+  const themesSnap = useThemes();
   const plugins = cat === "all" ? allPlugins : allPlugins.filter((p) => (p.manifest.category ?? "general") === cat);
   const [sheet, setSheet] = useState<{ id: string; mode: "settings" | "log" } | null>(null);
   const liveCount = plugins.filter((p) => p.enabled && isLive(p.manifest.id)).length;
@@ -61,7 +62,7 @@ export function PluginsPage(): ReactNode {
 
       {/* 插件类别页签（主题插件单独一类，2026-09-13 主题系统立项） */}
       <div className="seg-track" style={{ marginBottom: 10 }}>
-        {([["all", `全部 ${allPlugins.length}`], ["theme", `主题 ${allPlugins.filter((p) => p.manifest.category === "theme").length}`], ["general", `通用 ${allPlugins.filter((p) => (p.manifest.category ?? "general") === "general").length}`]] as const).map(([k, lbl]) => (
+        {([["all", `全部 ${allPlugins.length}`], ["theme", `主题 ${themesSnap.themes.length}`], ["general", `通用 ${allPlugins.filter((p) => (p.manifest.category ?? "general") === "general").length}`]] as const).map(([k, lbl]) => (
           <button key={k} className={"seg-item" + (cat === k ? " is-active" : "")} onClick={() => setCat(k)}>
             {lbl}
           </button>
@@ -143,10 +144,9 @@ function ThemeManagerSection(): ReactNode {
         background: "var(--surface)", padding: "10px 12px", marginBottom: 10,
       }}
     >
-      <div style={{ fontSize: "var(--text-sm)", color: "var(--text-2)", marginBottom: 8 }}>
-        主题即插件——只做令牌覆盖（配色/字体/logo/圆角阴影），不触碰布局骨架。内置与安装的主题同权：可停用、可删除。
-        {msg ? <b style={{ marginLeft: 8, color: "var(--accent)" }}>{msg}</b> : null}
-      </div>
+      {msg ? (
+        <div style={{ fontSize: "var(--text-sm)", color: "var(--accent)", marginBottom: 8 }}>{msg}</div>
+      ) : null}
       {snap.themes.length === 0 ? (
         <div style={{ fontSize: "var(--text-sm)", color: "var(--text-3)" }}>机架空空——所有主题都被删掉了。</div>
       ) : (
