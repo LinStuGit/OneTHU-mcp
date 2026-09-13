@@ -55,7 +55,7 @@ import { cacheGet, cacheSet, cacheFetch, cacheKeys,
   purgeXkCaches } from "./cache.js";
 
 /** info/zhjwxk 页内错误落盘（/tmp/onethu-debug.log），解析不匹配时可一轮定位 */
-function logPageError(tag: string, err: unknown): void {
+export function logPageError(tag: string, err: unknown): void {
   const detail = err instanceof Error ? err.message + (err.stack ? "" : "") : String(err);
   void logLine("PAGE-ERR " + tag + " " + detail + "\nHTTP " + http.lastDebug).catch(() => undefined);
 }

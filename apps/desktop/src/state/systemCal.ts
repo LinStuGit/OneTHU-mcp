@@ -19,7 +19,7 @@ import { fileRead, fileWrite, info } from "../lib/clients.js";
 import { getCloudEvents, getLocalEvents, buildSemesterEvents, onCloudCalChange } from "./cloudCal.js";
 import { parseLearnTime } from "@onethu/core";
 import type { ScheduleEntry } from "@onethu/core";
-import { getLearnSnapshot, getWeekSchedSnapshot, subscribeLearnData } from "./data.js";
+import { getLearnSnapshot, getWeekSchedSnapshot, logPageError, subscribeLearnData } from "./data.js";
 import { getHwRemindState, subscribeHwRemind, type HwRemindState } from "./hwRemind.js";
 import { getCachedCalendar } from "./data.js";
 
@@ -186,10 +186,10 @@ async function buildPayload(): Promise<SyncPayloadArg> {
       } catch (err) {
         const snap = getWeekSchedSnapshot(sem.semesterId);
         if (snap && snap.length > 0) {
-          console.warn(`[SYSCAL-SWR] 现场拉取失败退缓存快照：${snap.length} 条（sem=${sem.semesterId}；err=${err instanceof Error ? err.message : String(err)}）`);
+          logPageError("SYSCAL-SWR", new Error(`快照兜底命中 ${snap.length} 条（sem=${sem.semesterId}；原始错误：${err instanceof Error ? err.message : String(err)}）`));
           return snap;
         }
-        console.warn(`[SYSCAL-SWR] 快照兜底不适用（sem=${sem.semesterId}，0 条周缓存）；原始错误浮出`);
+        logPageError("SYSCAL-SWR", new Error(`快照兜底不适用（sem=${sem.semesterId}，0 条周缓存）；原始错误浮出：${err instanceof Error ? err.message : String(err)}`));
         throw err;
       }
     };
