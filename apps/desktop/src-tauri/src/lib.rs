@@ -791,7 +791,7 @@ struct BinaryOut {
 /// 带会话 Cookie 抓取二进制资源（learn 正文图片等），base64 回传给前端转 dataURL。
 /// webview 的 <img> 不携带应用会话 Cookie，直挂 learn 地址只会得到登录页/401。
 #[tauri::command]
-async fn fetch_binary(url: String, cookies: String) -> Result<BinaryOut, String> {
+async fn fetch_binary(url: String, cookies: String, referer: Option<String>) -> Result<BinaryOut, String> {
     // 共享 client + 超时（2026-09-13 用户实锤「其他服务变慢」：每调用新建
     // client 无连接复用（每次全量 TLS 握手）且无任何超时——校外不可达直连
     // 挂到 OS 级 75s TCP 超时，反复开关通知=悬挂连接与 async 任务堆积）。
@@ -808,9 +808,19 @@ async fn fetch_binary(url: String, cookies: String) -> Result<BinaryOut, String>
     });
     let client = &*CLIENT;
     // learn 端点部分校验同域 Referer——统一带上首页引用页（防御性，实测无害）
+    // Referer（2026-09-13 用户保存网页样本破案：downloadFiles 附件端点校验
+    // 来源，webvpn 包装 URL 不含 learn 字样导致漏带 → 44ms「会话已失效」）。
+    // 优先调用方显式传入；直连 learn 域 URL 兜底默认引用页。
     let mut req = client.get(&url).header("Cookie", cookies);
-    if url.contains("learn.tsinghua.edu.cn") {
-        req = req.header("Referer", "https://learn.tsinghua.edu.cn/f/wlxt/index.jsp");
+    let referer = referer.or_else(|| {
+        if url.contains("learn.tsinghua.edu.cn") {
+            Some("https://learn.tsinghua.edu.cn/f/wlxt/index.jsp".to_string())
+        } else {
+            None
+        }
+    });
+    if let Some(r) = referer {
+        req = req.header("Referer", r);
     }
     let resp = req
         .send()

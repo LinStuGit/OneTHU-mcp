@@ -581,7 +581,12 @@ export async function fetchImageAsDataUrl(url: string): Promise<string> {
     .map((c) => `${c.name}=${c.value}`)
     .join("; ");
   const { invoke } = await import("@tauri-apps/api/core");
-  const out = await invoke<{ mime: string; data: string }>("fetch_binary", { url: target, cookies: jarCookies });
+  // Referer 显式传入（webvpn 包装 URL 不含 learn 字样，Rust 侧域名判断会漏带）
+  const out = await invoke<{ mime: string; data: string }>("fetch_binary", {
+    url: target,
+    cookies: jarCookies,
+    referer: "https://learn.tsinghua.edu.cn/f/wlxt/index.jsp",
+  });
   // mime 守卫（2026-09-13 用户实锤「通知/作业图片渲染不出来但讨论区好」）：
   // 会话墙/404 返回 HTML，字节照样抓回来——不校验就把登录页当图片塞 <img>，
   // 静默碎图且 catch 永不触发。非 image/* 或字节过小一律按失败抛出走回退链。
@@ -638,6 +643,7 @@ export async function fetchImageByUrl(url: string, forceWrap = false): Promise<s
   const out = await invoke<{ mime: string; data: string }>("fetch_binary", {
     url: target,
     cookies: pairs.join("; "),
+    referer: "https://learn.tsinghua.edu.cn/f/wlxt/index.jsp",
   });
   if (!out || !/^image\//i.test(out.mime ?? "") || (out.data?.length ?? 0) < 80) {
     throw new Error(`图片包装响应非图片（mime=${out?.mime} bytes=${out.data?.length ?? 0}）`);
