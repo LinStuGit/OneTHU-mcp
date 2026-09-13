@@ -119,7 +119,14 @@ async function ensure(
 
   const run = (async (): Promise<ZhjwxkEntry> => {
   // demo establishZhjwxkSession：经 HttpClient 进入选课系统（自动 webvpn 包装 + 逐跳 id 桶）
-  let html = await s.http.text(ZHJWXK + "/xklogin.do");
+  // 外层 ≤2 次尝试：webvpn 模式下首跳 xklogin 的 webvpn 票据已死时，整条 CAS 流程
+  // 实际是「webvpn 重登录」——登录成功后兑付锚点落在 webvpn 门户页而非选课页
+  //（probe 实证：落地「清华大学WebVPN - 资源站点」）。此时新 webvpn 会话已在 jar，
+  // 重放一次 xklogin 即真正进入选课 SSO。直连模式落地即真页面，第二跳自然跳过。
+  let html = "";
+  let semester: string | null = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+  html = await s.http.text(ZHJWXK + "/xklogin.do");
 
   // xklogin 的 SSO 不是普通 302：链会 302 到 id 电子身份的动态 auth-request 表单页
   //（JS 锚点跟跳），HTTP 客户端到不了 —— 参照 thu-info-lib roam("id")：解析该表单
@@ -201,14 +208,20 @@ async function ensure(
     }
   }
 
-  const semester = /p_xnxq=([\d-]+)/.exec(html)?.[1] ?? null;
+  semester = /p_xnxq=([\d-]+)/.exec(html)?.[1] ?? null;
   zhjwxkDebug?.(
-    `[XK-ENTRY] len=${html.length} 有p_xnxq=${semester ? 1 : 0} 页首=${html.slice(0, 400).replace(/\s+/g, " ")}`,
+    `[XK-ENTRY] 第${attempt}次 len=${html.length} 有p_xnxq=${semester ? 1 : 0} 页首=${html.slice(0, 400).replace(/\s+/g, " ")}`,
   );
   // 落地页必须带 p_xnxq（真选课页特征）。「假成功」实证（15:03）：/check 登录成功
-  // 但兑付落在电子身份页——缓存这种毒 entry 会让合流窗口内所有请求吃死页。
-  // 不缓存、不记重登时刻，直接抛失登走整页重登自愈。
-  if (!semester) throw new AuthRequiredError("选课系统登录未落地，请重新登录后重试");
+  // 但兑付落在电子身份页/webvpn门户页——缓存这种毒 entry 会让合流窗口内所有请求
+  // 吃死页。不缓存；webvpn 劫持场景重放一次，二次仍未落地才抛失登。
+  if (semester) break;
+  if (attempt < 2) {
+    zhjwxkDebug?.(`[XK-RETRY] 未落地（可能 webvpn 重登劫持），重放 xklogin`);
+    continue;
+  }
+  throw new AuthRequiredError("选课系统登录未落地，请重新登录后重试");
+  }
   const entry: ZhjwxkEntry = { semester, at: Date.now() };
   lastXkReloginAt = Date.now();
   entryCache.set(s, entry);

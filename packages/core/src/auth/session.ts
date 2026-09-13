@@ -463,6 +463,15 @@ export class CampusSession {
     ];
     for (const [d, source] of domains) {
       const url = new URL(d);
+      // 2026-09-13 修复：整串多 cookie 塞 setRaw 只活第一条（parseSetCookieLine
+      // 语义=单条 Set-Cookie）。登录后 webvpn 桶长期缺票 → 首批包装请求全被弹去
+      // 重登舞（蜂窝 XK-DANCE 每 2s 一轮的共因）。逐条拆入（同 #489 行姿势）。
+      if (source && source.includes("; ")) {
+        for (const pair of source.split("; ")) {
+          if (/^[A-Za-z0-9_]+=.+/.test(pair)) this.http.jar.setRaw(url, `${pair}; Path=/`);
+        }
+        continue;
+      }
       for (const pair of source.split(";")) {
         const t = pair.trim();
         if (!t || !t.includes("=")) continue;

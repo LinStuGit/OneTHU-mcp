@@ -4,7 +4,13 @@
     "noEmit": true,
     "types": [
       "vite/client"
-    ]
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "sm-crypto": [
+        "../../scripts/_sm-shim.mjs"
+      ]
+    }
   },
   "include": [
     "src",
