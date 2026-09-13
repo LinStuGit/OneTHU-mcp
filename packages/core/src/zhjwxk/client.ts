@@ -130,11 +130,13 @@ async function ensure(
     // → 解析炸「无法从登录页获取 SM2 公钥」→ 选课整模块红条。浏览器靠 JS 自动
     // POST 它；手动兑付：POST checkSingle → 跟 302/锚点票据 → 重走 xklogin 落地。
     if (/checkSingle/.test(html)) {
+      // 2026-09-13 桶一致修复：去掉 direct:true——webvpn 模式下表单链在 webvpn 桶
+      // 建立会话，POST 却送直连桶 cookie（空/脏）→ id 不认识 → gb2312 错误页。
+      // 跟随传输模式：webvpn=包装桶，直连=直连桶（PUBLIC_HOSTS 含 id 自动直连）。
       const res = await s.http.request(`${ID_PREFIX}/do/off/ui/auth/login/checkSingle`, {
         method: "POST",
         body: new URLSearchParams({ i_rememberme: "on", fingerPrint: s.fingerprint, fingerGenPrint: "", fingerGenPrint3: "" }),
         headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-        direct: true,
         redirect: "manual",
       });
       const loc = res.headers.get("location") ?? "";
@@ -164,11 +166,12 @@ async function ensure(
       fingerGenPrint3: "",
       i_captcha: "",
     });
+    // 同上桶一致修复：check 跟随传输模式（原 direct:true 在 webvpn 模式送空桶
+    // cookie → gb2312 错误页五连败实锤）
     const checkHtml = await s.http.text("https://id.tsinghua.edu.cn/do/off/ui/auth/login/check", {
       method: "POST",
       body,
       headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-      direct: true,
     });
     if (!checkHtml.includes("登录成功")) {
       zhjwxkDebug?.(`[XK-BOUNCE] direct 未成功 页首=${checkHtml.slice(0, 300).replace(/\s+/g, " ")}`);
