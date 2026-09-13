@@ -1,5 +1,6 @@
 /** 插件加载器：blob 动态 import + 权限门面注入 + 生命周期（安装/启用/停用/删除） */
 import { buildApi } from "./facade.js";
+import { installTheme, type ThemeDef } from "../state/theme.js";
 import { bindRustApi, callRust, disposeRust, spawnRustPlugin, startHarnessEmbedded } from "./rust.js";
 import { addPlugin, addRustPlugin, getPlugin, removePlugin, snapshot, subscribe, updatePlugin } from "./registry.js";
 import { logLine } from "../lib/clients.js";
@@ -63,9 +64,12 @@ export async function installPlugin(code: string): Promise<PluginManifest> {
     URL.revokeObjectURL(blobUrl);
     throw new Error("插件清单非法：须导出 manifest { id, name, version, permissions[] }");
   }
-  if (typeof mod.default !== "function") {
+  const isTheme = mod.manifest?.category === "theme";
+  if (typeof mod.default !== "function" && !(isTheme && mod.theme && typeof mod.theme === "object")) {
     URL.revokeObjectURL(blobUrl);
-    throw new Error("插件须导出 default(ctx) 激活函数");
+    throw new Error(isTheme
+      ? "主题插件须导出 theme: ThemeDef（或另加 default(ctx) 提供命令）"
+      : "插件须导出 default(ctx) 激活函数");
   }
   const manifest = mod.manifest as PluginManifest;
   const prev = getPlugin(manifest.id);
@@ -136,6 +140,15 @@ async function activate(id: string, mod?: any, blobUrl?: string): Promise<void> 
     },
     log: (line: string) => void logLine(`[PLUGIN:${id}] ${line}`),
   };
+  // 主题插件：注册主题定义（无 default 时不再调用激活函数）
+  if (rec.manifest.category === "theme" && m.theme && typeof m.theme === "object") {
+    installTheme(m.theme as ThemeDef, "plugin");
+    logLine(`[PLUGIN] 主题已注册 ${(m.theme as ThemeDef).id}（来自插件 ${id}）`);
+  }
+  if (rec.manifest.category === "theme" && typeof m.default !== "function") {
+    live.set(id, { id, kind: "js", mod: m, blobUrl: url ?? "", dispose: undefined });
+    return;
+  }
   const maybeDispose = await m.default(ctx);
   live.set(id, { id, kind: "js", mod: m, blobUrl: url ?? "", dispose: typeof maybeDispose?.dispose === "function" ? maybeDispose.dispose : undefined });
 }

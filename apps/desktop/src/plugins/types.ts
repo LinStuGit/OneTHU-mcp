@@ -84,6 +84,9 @@ export interface PluginManifest {
   description?: string;
   permissions: PluginPermission[];
   settings?: PluginSettingField[];
+  /** 插件类别（2026-09-13 主题系统立项）：theme=主题插件（导出 theme 定义，
+   *  免 default(ctx)），general=通用能力插件（默认，导出 default(ctx)） */
+  category?: "general" | "theme";
 }
 
 /** 插件注册的命令：显示在插件管理页，可带一段文本输入（agent prompt 等） */

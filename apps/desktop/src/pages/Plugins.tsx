@@ -15,6 +15,7 @@ import { addRustPlugin, updatePlugin } from "../plugins/registry.js";
 import { clearPluginEvents, pluginEvents, subscribePluginEvents } from "../plugins/events.js";
 import { notifyRust } from "../plugins/rust.js";
 import { PLUGIN_PERMISSIONS } from "../plugins/types.js";
+import { activateTheme, deactivateTheme, useThemes } from "../state/theme.js";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -32,9 +33,11 @@ function monogram(name: string, id: string): string {
 }
 
 export function PluginsPage(): ReactNode {
-  const plugins = useSyncExternalStore(subscribe, installedPlugins);
+  const allPlugins = useSyncExternalStore(subscribe, installedPlugins);
   const cmds = useSyncExternalStore(subscribeCommands, commandsSnapshot);
+  const [cat, setCat] = useState<"all" | "theme" | "general">("all");
   const [instOpen, setInstOpen] = useState(false);
+  const plugins = cat === "all" ? allPlugins : allPlugins.filter((p) => (p.manifest.category ?? "general") === cat);
   const [sheet, setSheet] = useState<{ id: string; mode: "settings" | "log" } | null>(null);
   const liveCount = plugins.filter((p) => p.enabled && isLive(p.manifest.id)).length;
   const coreCount = plugins.filter((p) => p.embedded).length;
@@ -55,6 +58,15 @@ export function PluginsPage(): ReactNode {
           </button>
         }
       />
+
+      {/* 插件类别页签（主题插件单独一类，2026-09-13 主题系统立项） */}
+      <div className="seg-track" style={{ marginBottom: 10 }}>
+        {([["all", `全部 ${allPlugins.length}`], ["theme", `主题 ${allPlugins.filter((p) => p.manifest.category === "theme").length}`], ["general", `通用 ${allPlugins.filter((p) => (p.manifest.category ?? "general") === "general").length}`]] as const).map(([k, lbl]) => (
+          <button key={k} className={"seg-item" + (cat === k ? " is-active" : "")} onClick={() => setCat(k)}>
+            {lbl}
+          </button>
+        ))}
+      </div>
 
       {/* 电表概览条 */}
       <div className="plg-stats">
@@ -100,6 +112,29 @@ export function PluginsPage(): ReactNode {
 
       {sheet ? <PluginSheet id={sheet.id} mode={sheet.mode} onClose={() => setSheet(null)} /> : null}
     </div>
+  );
+}
+
+/** 主题插件卡上的「应用/撤下主题」动作（主题管理在设置页·主题区，此处快捷） */
+function ThemeApplyButton({ themePluginId, onMsg }: { themePluginId: string; onMsg: (s: string) => void }): ReactNode {
+  const snap = useThemes();
+  const applied = snap.activeId === themePluginId;
+  return (
+    <button
+      className={"btn " + (applied ? "btn-ghost" : "btn-primary")}
+      onClick={() => {
+        if (applied) {
+          deactivateTheme();
+          onMsg("已撤下主题，回到默认配色");
+        } else if (activateTheme(themePluginId)) {
+          onMsg("主题已应用（设置 → 主题 可管理全部主题）");
+        } else {
+          onMsg("主题定义尚未注册（插件未启用？）");
+        }
+      }}
+    >
+      {applied ? "撤下主题" : "应用主题"}
+    </button>
   );
 }
 
@@ -150,6 +185,7 @@ function PluginCard({
             <b className="plg-name">{m.name}</b>
             <span className="plg-ver">v{m.version}</span>
             <span className="plg-kind">{m.kind === "rust" ? "RUST" : "JS"}</span>
+            {m.category === "theme" ? <span className="plg-core" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>主题</span> : null}
             {rec.embedded ? <span className="plg-core" title="Rust 核心已编进 App，无需二进制">内置</span> : null}
           </div>
           <div className={"plg-state" + (active ? " is-run" : failed ? " is-err" : "")}>
@@ -159,6 +195,7 @@ function PluginCard({
           </div>
         </div>
         <div className="plg-ops">
+          {m.category === "theme" ? <ThemeApplyButton themePluginId={m.id} onMsg={setRunMsg} /> : null}
           <Switch on={rec.enabled} label={rec.enabled ? "停用" : "启用"} onToggle={() => void (rec.enabled ? disablePlugin(id) : enablePlugin(id)).catch((e: unknown) => setRunMsg(String(e)))} />
           <button className="btn btn-ghost" onClick={() => onOpenSheet({ id, mode: "settings" })}>
             设置

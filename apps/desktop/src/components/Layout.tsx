@@ -1,5 +1,6 @@
 /** 侧栏 + 内容骨架 + 基础 UI 件（卡片 / 徽标 / 骨架屏 / 开关） */
 import { Children, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useThemes } from "../state/theme.js";
 import { useApp } from "../state/context.js";
 import { topLevelPage, type Page } from "../state/app.js";
 import { IconChevron, IconDemo, IconFolder, IconFolderPlus, IconInfo, IconLearn, IconPlug, IconSchedule, IconSettings, IconToday, IconXk, IconCard, IconCalendar, FolderIcon, IconExternal, IconTrace, IconMail, IconCloud,} from "./Icons.js";
@@ -26,8 +27,21 @@ const NAV: Array<{ page: Page; label: string; icon: (p: object) => ReactNode }> 
   { page: "otherinfo", label: "其他 Info 应用", icon: IconExternal },
 ];
 
-/** (One / THU) 品牌标识：五列网格，括号代码体，One 衬线紧凑撑满与 THU 逐列对齐 */
+/** (One / THU) 品牌标识：五列网格，括号代码体，One 衬线紧凑撑满与 THU 逐列对齐。
+ *  主题插件可整体替换（theme.logo 提供 inline SVG 时优先渲染）。 */
 export function BrandLogo({ size = 14 }: { size?: number }) {
+  const themed = useThemes().logoSvg;
+  if (themed) {
+    return (
+      <span
+        className="brand-logo brand-logo-themed"
+        style={{ fontSize: size, display: "inline-flex", alignItems: "center" }}
+        aria-label="OneTHU"
+        /* 主题受信代码，同插件边界 */
+        dangerouslySetInnerHTML={{ __html: themed }}
+      />
+    );
+  }
   return (
     <span className="brand-logo" style={{ fontSize: size }} aria-label="OneTHU">
       <span className="p">(</span>
