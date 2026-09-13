@@ -208,7 +208,7 @@ export function invalidateLearnCache(): void {
  *  同一时刻多个数据钩子（useLearnData 各子页 / useCampusData）一起撞上
  *  AuthRequiredError 时只漫游一次（此前并发各自漫游，幂等但浪费且拉长 loading 空窗）。 */
 let roamInflight: Promise<boolean> | null = null;
-export function relearnRoamOnce(): Promise<boolean> {
+function relearnRoamOnce(): Promise<boolean> {
   if (!roamInflight) {
     roamInflight = session
       .relearnRoam()
@@ -361,9 +361,6 @@ export function useLearnData() {
   const [data, setData] = useState<LearnBundle | null>(() => cache?.data ?? null);
   const [state, setState] = useState<DataState>(cache?.data ? "ready" : "loading");
   const [error, setError] = useState<string | null>(null);
-  // 漫游重试预算（2026-09-13 移动端风暴实锤：load 认证失败→roam→递归 load
-  // 无计数器，roam「成功」但下轮请求仍失败时无限递归——25s 内 5 列表×10 轮=133 跳）
-  const roamBudget = useRef(0);
 
   const load = useCallback(async () => {
     setState("loading");
@@ -407,7 +404,6 @@ export function useLearnData() {
         );
       }
       const entry = cache; // 局部引用：等待期间 cache 被置空也不受影响
-      roamBudget.current = 0;
       setData(await entry.promise);
       setState("ready");
       notifyLearnData();
@@ -417,14 +413,10 @@ export function useLearnData() {
       if (err instanceof Error && err.name === "AuthRequiredError") {
         logPageError("LEARN-AUTH", err);
         cache = null;
-        // 预算内才重漫游+重试；超预算落 error 态（用户重试时预算已在 reload 清零）
-        if (roamBudget.current < 2) {
-          const reRoamed = await relearnRoamOnce();
-          if (reRoamed) {
-            roamBudget.current += 1;
-            await load(); // 预算内递归：缓存已清重走数据链
-            return;
-          }
+        const reRoamed = await relearnRoamOnce();
+        if (reRoamed) {
+          await load(); // 递归一次：缓存已清，重走数据链；再失败走下一轮分支
+          return;
         }
         backToLogin();
         return;
@@ -449,12 +441,7 @@ export function useLearnData() {
     [],
   );
 
-  // 手动重试清漫游预算（自动递归上限 2 次；用户点重试重新获得完整预算）
-  const reload = useCallback(() => {
-    roamBudget.current = 0;
-    return load();
-  }, [load]);
-  return { data, state, error, reload };
+  return { data, state, error, reload: load };
 }
 
 /* ============ 学期列表（learnX SemesterSelection） ============ */

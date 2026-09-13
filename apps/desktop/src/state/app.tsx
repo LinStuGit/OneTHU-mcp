@@ -194,10 +194,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    // 启动瘦身后：会话全死由后台预热链回调翻登录页（仅本 effect 存活期间）
-    clients.setBootDeadHandler(() => {
-      if (!cancelled) setStatus("logged-out");
-    });
     void (async () => {
       let ok = false;
       try {
@@ -225,7 +221,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })();
     return () => {
       cancelled = true;
-      clients.setBootDeadHandler(null);
     };
   }, []);
 
