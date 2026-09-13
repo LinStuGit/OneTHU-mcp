@@ -60,21 +60,58 @@ function Routed() {
   }, [status]);
 
   const body = (() => {
-    if (status === "booting") {
-      return (
-        <div className="login-wrap">
-          <BrandLogo size={40} />
-          <div style={{ color: "var(--ink-3)", fontSize: "var(--text-sm)", marginTop: 18 }}>正在恢复会话…</div>
-        </div>
-      );
-    }
-
     if (status === "2fa") {
       return <TwoFactorPage />;
     }
 
     if (status === "logged-out" || status === "connecting") {
       return <LoginPage />;
+    }
+
+    /* 冷启动不挡门（2026-09-13 移动端实测：恢复链在手机网络要爬 15-20 跳
+     * 10-20s，全屏「正在恢复会话」= 用户干等；thu-info 语义=缓存数据立即
+     * 渲染、会话恢复后台继续。数据层全部 status-gated（恢复中不发请求），
+     * 恢复失败仍会切 logged-out→登录页，行为不回退。 */
+    if (status === "booting") {
+      return (
+        <>
+          <div
+            style={{
+              position: "fixed", top: 0, left: 0, right: 0, zIndex: 90,
+              background: "var(--accent)", color: "#fff",
+              fontSize: "var(--text-xs)", textAlign: "center", padding: "3px 0",
+            }}
+          >
+            正在恢复会话，当前展示缓存数据…
+          </div>
+          <Shell>
+            {page === "today" && <TodayPage />}
+            {page === "learn" && <LearnPage />}
+            {page === "schedule" && <SchedulePage />}
+            {page === "mail" && <MailPage />}
+            {page === "cloud" && <CloudPage />}
+            {page === "trace" && <TracePage />}
+            {page === "otherinfo" && <OtherInfoPage />}
+            {page === "info" && <InfoPage />}
+            {page === "life" && <LifePage />}
+            {page === "reserve" && <ReservePage />}
+            {page === "zhjwxk" && <ZhjwxkCoursesPage />}
+            {page === "folder" && <FolderPage />}
+            {page === "settings" && <SettingsPage />}
+            {page === "plugins" && <PluginsPage />}
+            {page === "learn-course" && <CourseDetailPage />}
+            {page === "learn-assignments" && <AssignmentsPage />}
+            {page === "learn-notices" && <NoticesPage />}
+            {page === "learn-files" && <FilesPage />}
+            {page === "learn-search" && <SearchPage />}
+            {page === "learn-semester" && <SemesterSelectionPage />}
+            {page === "learn-assignment-detail" && <AssignmentDetailPage />}
+            {page === "learn-notice-detail" && <NoticeDetailPage />}
+            {page === "learn-forum-thread" && <ForumThreadPage />}
+            {page === "learn-file-detail" && <FileDetailPage />}
+          </Shell>
+        </>
+      );
     }
 
     return (
