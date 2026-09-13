@@ -582,6 +582,12 @@ export async function fetchImageAsDataUrl(url: string): Promise<string> {
     .join("; ");
   const { invoke } = await import("@tauri-apps/api/core");
   const out = await invoke<{ mime: string; data: string }>("fetch_binary", { url: target, cookies: jarCookies });
+  // mime 守卫（2026-09-13 用户实锤「通知/作业图片渲染不出来但讨论区好」）：
+  // 会话墙/404 返回 HTML，字节照样抓回来——不校验就把登录页当图片塞 <img>，
+  // 静默碎图且 catch 永不触发。非 image/* 或字节过小一律按失败抛出走回退链。
+  if (!out || !/^image\//i.test(out.mime ?? "") || (out.data?.length ?? 0) < 80) {
+    throw new Error(`图片直连响应非图片（mime=${out?.mime} bytes=${out.data?.length ?? 0}）`);
+  }
   return `data:${out.mime};base64,${out.data}`;
 }
 
@@ -601,11 +607,11 @@ const CAMPUS_PUBLIC_HOSTS = new Set([
  *     seat.lib 与 api.php 同域，会话建立在 wengine 服务端，直连必然匿名）；
  *  ② Cookie 取包装目标域 + 解码真实域两桶合并（HttpClient #cookieHeaderFor 同语义）；
  *  ③ 复用 Rust fetch_binary 抓字节转 dataURL。失败由调用方处理（隐藏图块）。 */
-export async function fetchImageByUrl(url: string): Promise<string> {
+export async function fetchImageByUrl(url: string, forceWrap = false): Promise<string> {
   let target = url;
   try {
     const host = new URL(url).hostname;
-    if (http.webVPNEncoder && host && !CAMPUS_PUBLIC_HOSTS.has(host)) {
+    if (http.webVPNEncoder && host && (forceWrap || !CAMPUS_PUBLIC_HOSTS.has(host))) {
       target = http.webVPNEncoder(url);
     }
   } catch {
@@ -633,6 +639,9 @@ export async function fetchImageByUrl(url: string): Promise<string> {
     url: target,
     cookies: pairs.join("; "),
   });
+  if (!out || !/^image\//i.test(out.mime ?? "") || (out.data?.length ?? 0) < 80) {
+    throw new Error(`图片包装响应非图片（mime=${out?.mime} bytes=${out.data?.length ?? 0}）`);
+  }
   return `data:${out.mime};base64,${out.data}`;
 }
 

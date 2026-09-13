@@ -23,6 +23,119 @@ import {
 } from "../lib/zipTree.js";
 import type { PptxSlide, ZipEntry, ZipNode } from "../lib/zipTree.js";
 
+/* 安卓 WebView 无内嵌 PDF 能力（embed 空白）；桌面 WKWebView 可 embed */
+const IS_ANDROID_WEBVIEW = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
+
+/* ---------- pdf.js 内嵌 PDF 预览（安卓 WebView 无原生 PDF 能力） ---------- */
+
+/** base64 dataURL → 字节（pdfjs.getDocument 需 Uint8Array） */
+function dataUrlBytes(dataUrl: string): Uint8Array {
+  const b64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/** pdf.js 文档的最小结构面（避免整包类型耦合） */
+interface PdfPageLike {
+  getViewport(o: { scale: number }): { width: number; height: number };
+  render(o: { canvasContext: CanvasRenderingContext2D; viewport: { width: number; height: number }; transform?: number[] }): { promise: Promise<void> };
+}
+interface PdfDocLike {
+  numPages: number;
+  getPage(n: number): Promise<PdfPageLike>;
+}
+
+function PdfCanvasView({ dataUrl, onOpenExternally, pdfBusy, dlMsg }: { dataUrl: string; onOpenExternally: () => Promise<void>; pdfBusy: boolean; dlMsg: string }): React.ReactNode {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [doc, setDoc] = useState<PdfDocLike | null>(null);
+  const [pageNo, setPageNo] = useState(1);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDoc(null);
+    setErr(null);
+    setPageNo(1);
+    (async () => {
+      try {
+        const pdfjs = await import("pdfjs-dist");
+        const workerUrl = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url")).default;
+        pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+        const d = await pdfjs.getDocument({ data: dataUrlBytes(dataUrl) }).promise;
+        if (!cancelled) setDoc(d as unknown as PdfDocLike);
+      } catch (e) {
+        if (!cancelled) setErr(`PDF 解析失败：${e instanceof Error ? e.message : String(e)}`.slice(0, 160));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dataUrl]);
+
+  useEffect(() => {
+    if (!doc) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const page = await doc.getPage(pageNo);
+        const canvas = canvasRef.current;
+        const wrap = wrapRef.current;
+        if (!canvas || !wrap || cancelled) return;
+        const base = page.getViewport({ scale: 1 });
+        const availW = Math.max(220, (wrap.clientWidth || 360) - 16);
+        const scale = availW / base.width;
+        const vp = page.getViewport({ scale });
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        canvas.width = Math.round(vp.width * dpr);
+        canvas.height = Math.round(vp.height * dpr);
+        canvas.style.width = `${Math.round(vp.width)}px`;
+        canvas.style.height = `${Math.round(vp.height)}px`;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        await page.render({
+          canvasContext: ctx,
+          viewport: vp,
+          transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined,
+        }).promise;
+      } catch (e) {
+        if (!cancelled) setErr(`页面渲染失败：${e instanceof Error ? e.message : String(e)}`.slice(0, 160));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [doc, pageNo]);
+
+  if (err) {
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, padding: 24 }}>
+        <div style={{ fontSize: 12.5, color: "var(--red, #e5484d)", textAlign: "center" }}>{err}</div>
+        <button className="btn" disabled={pdfBusy} onClick={() => void onOpenExternally()}>用系统应用打开</button>
+      </div>
+    );
+  }
+  if (!doc) {
+    return <div style={{ padding: 28, textAlign: "center", color: "var(--text-3)", fontSize: 12.5 }}>PDF 解析中…</div>;
+  }
+  return (
+    <div ref={wrapRef} style={{ flex: 1, overflow: "auto", padding: "8px 8px 0", display: "flex", flexDirection: "column", alignItems: "center" }}>
+      <canvas ref={canvasRef} style={{ borderRadius: 6, boxShadow: "var(--shadow-1)", background: "#fff", maxWidth: "100%" }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0 10px", position: "sticky", bottom: 0, width: "100%", justifyContent: "center", flexWrap: "wrap" }}>
+        <button className="btn" disabled={pageNo <= 1} onClick={() => setPageNo((n) => Math.max(1, n - 1))}>‹</button>
+        <span style={{ fontSize: 12, color: "var(--text-2)", minWidth: 64, textAlign: "center" }}>{pageNo} / {doc.numPages}</span>
+        <button className="btn" disabled={pageNo >= doc.numPages} onClick={() => setPageNo((n) => Math.min(doc.numPages, n + 1))}>›</button>
+        <button className="btn btn-ghost" disabled={pdfBusy} title="下载临时文件后调起系统 PDF 应用" onClick={() => void onOpenExternally()}>
+          {pdfBusy ? "调起中…" : "系统应用"}
+        </button>
+      </div>
+      {dlMsg ? <div style={{ fontSize: 11.5, color: "var(--text-3)", wordBreak: "break-all", padding: "0 8px 8px" }}>{dlMsg}</div> : null}
+    </div>
+  );
+}
+
 /* ---------- opener 通道 ---------- */
 
 export interface FilePreviewTarget {
@@ -652,6 +765,24 @@ export function FilePreviewHost() {
     }
   }, [cur, dlBusy]);
 
+  /* 安卓 WebView 无 PDF 渲染能力：下载到临时文件后交系统应用 */
+  const pdfEmbedded = !IS_ANDROID_WEBVIEW;
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const openPdfExternally = async (): Promise<void> => {
+    if (!cur || pdfBusy) return;
+    setPdfBusy(true);
+    setDlMsg("");
+    try {
+      const path = await downloadLearnUrl(cur.url, cur.name || "preview.pdf");
+      const { openPath } = await import("@tauri-apps/plugin-opener");
+      await openPath(path);
+    } catch (err) {
+      setDlMsg("打开失败：" + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   if (!cur) return null;
 
   const retry = () => {
@@ -712,7 +843,19 @@ export function FilePreviewHost() {
           ) : null}
 
           {view?.kind === "pdf" ? (
-            <embed src={view.dataUrl} type="application/pdf" style={{ width: "100%", height: "70vh", border: "none" }} />
+            pdfEmbedded ? (
+              <embed src={view.dataUrl} type="application/pdf" style={{ width: "100%", height: "70vh", border: "none" }} />
+            ) : (
+              /* 安卓 WebView 无内嵌 PDF 渲染器（embed 一律空白，用户实锤）——
+                 pdf.js canvas 内嵌预览（learnX 原生渲染器的 WebView 等价物），
+                 「系统应用打开」保留为辅助出口 */
+              <PdfCanvasView
+                dataUrl={view.dataUrl}
+                onOpenExternally={openPdfExternally}
+                pdfBusy={pdfBusy}
+                dlMsg={dlMsg}
+              />
+            )
           ) : null}
 
           {view?.kind === "text" ? (
