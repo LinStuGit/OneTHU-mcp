@@ -2,7 +2,6 @@ declare const __APP_VERSION__: string;
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Card, PageHead, SectionHead } from "../components/Layout.js";
-import { activateTheme, deactivateTheme, removeTheme, restoreBuiltins, useThemes } from "../state/theme.js";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { clearRemembered, loadRemembered, session } from "../lib/clients.js";
@@ -89,9 +88,6 @@ export function SettingsPage() {
         </div>
         <UpdateRow />
       </Card>
-
-      <SectionHead title="主题" />
-      <ThemeManagerSection />
 
       <SectionHead title="账户" />
       <Card>
@@ -526,101 +522,3 @@ function UpdateRow() {
 }
 
 
-/* ═══════════════ 主题管理（神秘的主题插件系统 · 2026-09-13） ═══════════════ */
-
-/** 主题色卡：从 vars 抽 accent/soft/bg 三色出预览（缺省回退令牌默认） */
-function ThemeSwatch({ vars }: { vars: Record<string, string> }): ReactNode {
-  const accent = vars["--accent"] ?? "#4176e6";
-  const soft = vars["--accent-soft"] ?? "#edf3fe";
-  const bg = vars["--bg"] ?? "#ffffff";
-  return (
-    <span className="theme-swatch" style={{ background: soft }}>
-      <i style={{ background: accent }} />
-      <i style={{ background: bg, boxShadow: "inset 0 0 0 1px rgba(0,0,0,.08)" }} />
-    </span>
-  );
-}
-
-function ThemeManagerSection(): ReactNode {
-  const snap = useThemes();
-  const [msg, setMsg] = useState<string | null>(null);
-  return (
-    <Card>
-      <div className="setting-row" style={{ alignItems: "flex-start" }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="setting-title">配色主题 · 主题即插件</div>
-          <div className="setting-desc">
-            主题只做令牌覆盖（配色/字体/logo/圆角阴影），不触碰布局骨架——原子化、左栏右内容、
-            卡片排布恒定。内置主题与安装的主题同权：可停用、可删除；主题插件也可从「插件」页安装
-            （manifest.category="theme"，模块导出 theme 定义）。
-          </div>
-          {snap.themes.length === 0 ? (
-            <div className="setting-desc" style={{ marginTop: 8 }}>
-              机架空空——所有主题都被删掉了。
-            </div>
-          ) : (
-            <div className="theme-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 8, marginTop: 10 }}>
-              {snap.themes.map((t) => {
-                const on = snap.activeId === t.id;
-                return (
-                  <div
-                    key={t.id}
-                    className={"theme-card" + (on ? " is-on" : "")}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
-                      border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`,
-                      borderRadius: "var(--r-lg)", background: on ? "var(--accent-soft)" : "var(--surface)",
-                    }}
-                  >
-                    <ThemeSwatch vars={t.vars} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <b style={{ fontSize: "var(--text-base)" }}>{t.name}</b>
-                        <span style={{ fontSize: "var(--text-xs)", color: "var(--text-3)" }}>v{t.version}</span>
-                        {t.source === "plugin" ? (
-                          <span className="chip" style={{ height: 16, fontSize: 9.5, padding: "0 6px" }}>插件</span>
-                        ) : null}
-                      </div>
-                      <div style={{ fontSize: "var(--text-xs)", color: "var(--text-3)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {t.description ?? t.id}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", gap: 4, flex: "none" }}>
-                      {on ? (
-                        <button className="btn btn-ghost" onClick={() => { deactivateTheme(); setMsg(`已停用「${t.name}」，回到默认配色`); }}>
-                          停用
-                        </button>
-                      ) : (
-                        <button className="btn btn-primary" onClick={() => { activateTheme(t.id); setMsg(`已应用「${t.name}」`); }}>
-                          应用
-                        </button>
-                      )}
-                      <button
-                        className="btn btn-ghost"
-                        title="删除主题（内置同权可删，可从下方恢复）"
-                        onClick={() => { removeTheme(t.id); setMsg(`已删除「${t.name}」`); }}
-                      >
-                        删除
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
-            {snap.deletedBuiltins.length > 0 ? (
-              <button
-                className="btn"
-                onClick={() => setMsg(`已恢复 ${restoreBuiltins()} 个内置主题`)}
-              >
-                恢复内置主题（{snap.deletedBuiltins.length} 个已删）
-              </button>
-            ) : null}
-            {msg ? <span style={{ fontSize: "var(--text-sm)", color: "var(--text-2)" }}>{msg}</span> : null}
-          </div>
-        </div>
-      </div>
-    </Card>
-  );
-}
