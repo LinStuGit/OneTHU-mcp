@@ -2,7 +2,9 @@
  * SM2 国密封装（选课系统 / CAS 登录密码加密）。
  * 密文格式：'04' + C1C3C2 hex，sm-crypto cipherMode=1 —— 与服务端验证一致。
  */
-import { sm2, sm3, sm4 } from "sm-crypto";
+// 默认导入再解构：sm-crypto 是 CJS 包，原生 ESM loader 探测不出具名导出
+import smCrypto from "sm-crypto";
+const { sm2, sm3, sm4 } = smCrypto as typeof import("sm-crypto");
 
 /** CAS / 教务登录口令加密：公钥来自登录页 #sm2publicKey */
 export function encryptPassword(password: string, publicKey: string): string {
