@@ -36,7 +36,8 @@ export interface TwoFactorMethod {
 
 export type LoginResult =
   | { state: "ready" }
-  | { state: "need-2fa"; methods: TwoFactorMethod[]; debugHtml: string };
+  | { state: "need-2fa"; methods: TwoFactorMethod[]; debugHtml: string }
+  | { state: "need-learn-2fa"; methods: TwoFactorMethod[]; debugHtml: string };
 
 export interface CampusSessionOptions {
   http: HttpClient;
@@ -46,6 +47,13 @@ export interface CampusSessionOptions {
   fingerprint?: string;
   requireInfo?: boolean;
 }
+
+/** learn 二轮验证的方式兜底（第一轮列表不可用时的合理猜测） */
+const FALLBACK_METHODS: TwoFactorMethod[] = [
+  { type: "wechat", name: "企业微信" },
+  { type: "mobile", name: "手机短信" },
+  { type: "totp", name: "TOTP 验证器" },
+];
 
 const METHOD_NAMES: Record<string, string> = {
   wechat: "企业微信",
@@ -178,16 +186,29 @@ export class CampusSession {
         const probe = await webvpnRequest(this.fetchLike, "GET", "https://webvpn.tsinghua.edu.cn/", {
           cookies: this.#demo.webvpnCookies,
         }).catch(() => null);
-        const landed = !!probe && !/\/login(\/|\b|$)/.test(probe.url);
+        const landed = !!probe && !/\/login(\/|\b|$)/.test(probe.url)
+          && /wengine_vpn_ticket/i.test(probe.cookies ?? "");
         this.#dbg(
           "NEED2FA-FIND-FAIL " + String(findErr) + " probe终=" + (probe ? probe.url.slice(0, 90) : "(请求失败)") +
             " landed=" + landed,
         );
+        if (probe && !landed) {
+          const e: Error & { debug?: string } = new Error(
+            "登录未完成认证（未要求验证码就落地，会话不可用）——请重试一次登录；若再要求验证码，完成即可");
+          e.debug = this.#demo.debug;
+          throw e;
+        }
         if (probe && landed) {
           await this.#roamId();
           const csrf = await demoEnterLearn(
             this.fetchLike, this.#demo, this.username, this.#password, this.fingerprint, this.finger3,
           );
+          if (csrf === "need-2fa") {
+            // learn 入口撞上二次认证墙：哨兵不是 csrf，进第二轮（2026-09-19 假登录根因）
+            this.state = "need-learn-2fa";
+            this.#learnMethods = this.#firstRoundMethods.length ? this.#firstRoundMethods : FALLBACK_METHODS;
+            return { state: "need-learn-2fa", methods: this.#learnMethods, debugHtml: this.#demo.twoFaHtml };
+          }
           this.learn.applyCsrf(csrf);
       this.#learnEraCookies = this.#demo.webvpnCookies;
           this.#dbg(this.#demo.debug);
@@ -215,6 +236,12 @@ export class CampusSession {
     } catch (e) {
       this.#dbg("ENTER-LEARN-FAIL " + String(e) + "\n" + this.#demo.debug);
       throw e;
+    }
+    if (csrf === "need-2fa") {
+      // learn 入口二次认证墙 → 第二轮（同 verify2FA 的分流；relogin 非交互由此诚实失败）
+      this.state = "need-learn-2fa";
+      this.#learnMethods = this.#firstRoundMethods.length ? this.#firstRoundMethods : FALLBACK_METHODS;
+      return { state: "need-learn-2fa", methods: this.#learnMethods, debugHtml: this.#demo.twoFaHtml };
     }
     this.learn.applyCsrf(csrf);
       this.#learnEraCookies = this.#demo.webvpnCookies;
@@ -250,7 +277,7 @@ export class CampusSession {
         // learn-lib 兜底路径触发了该服务的二次验证 → 进入第二轮。
         // 复用第一轮方式列表（该服务流程的 FIND_APPROACHES 实测会被拒）。
         this.state = "need-learn-2fa";
-        this.#learnMethods = this.#firstRoundMethods.length ? this.#firstRoundMethods : [];
+        this.#learnMethods = this.#firstRoundMethods.length ? this.#firstRoundMethods : FALLBACK_METHODS;
         return this.#learnMethods;
       }
       this.learn.applyCsrf(csrf);

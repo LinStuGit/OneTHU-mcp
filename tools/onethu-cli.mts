@@ -192,11 +192,49 @@ function boot(secret: Secret | null): Boot {
       session.restoreDemo(state.session.demoCookies ?? "", state.session.idJsid ?? "");
       session.restoreInfoCookies(state.session.infoCookies ?? "");
       if (state.secret) session.injectCredentials(state.secret.username, state.secret.password);
-      session.reseed();
+      // cookiesJson 在快照里时分域 cookie 是忠实的，reseed() 会用单 JSESSIONID 的
+      // 字符串模型覆盖 learn 桶（core 警告同款坑）→ 跨进程必死。仅遗留快照才 reseed。
+      if (!state.session.cookiesJson) session.reseed();
     } catch { /* 坏快照当无会话处理 */ }
   }
   return { http, session, info, learn, state };
 }
+
+/** 恢复快照后的活体检修（桌面 resumeSession 同款）：SSO 免密重漫游重建 learn；
+ *  仍死且有记住密码 → 完整重登并落盘。绝不抛——修不好就让业务调用自己报实情。 */
+async function revive(b: Boot): Promise<void> {
+  if (!b.state.session) return;
+  const alive = async (): Promise<boolean> => {
+    try { await b.learn.getCurrentSemester(); return true; }
+    catch { return false; }
+  };
+  try {
+    if (await alive()) return;
+    // 新进程 #csrf 不在快照里（必空）：先 resume 抓课程页 csrf；但登录页也含
+    // _csrf 字样会误报 → 用 getCurrentSemester 的真 JSON 返回验证。
+    let ok = false;
+    try { ok = await b.learn.resume(); } catch { ok = false; }
+    if (ok) ok = await alive();
+    if (!ok) { try { ok = await b.session.relearnRoam(); } catch { ok = false; } }
+    if (ok) ok = await alive();
+    if (!ok && b.state.secret) {
+      await b.session.relogin(b.state.secret.username, b.state.secret.password);
+      ok = await alive();
+    }
+    if (ok) {
+      persist(b);
+      process.stderr.write("[revive] session rebuilt\n");
+      return;
+    }
+    process.stderr.write("[revive] dead. http.lastDebug=" + b.http.lastDebug.slice(0, 700) + "\n");
+  } catch (e) {
+    // 修不活不拦路：业务调用会报真实错误；这里留痕到 stderr 便于诊断
+    process.stderr.write("[revive] " + (e instanceof Error ? e.message : String(e)) + "\n");
+  }
+}
+
+
+
 
 function persist(b: Boot): void {
   const s: core.SessionData = {
@@ -241,7 +279,7 @@ async function withAuth<T>(b: Boot, fn: () => Promise<T>, safe = true): Promise<
     const msg = err instanceof Error ? err.message : String(err);
     const authy = err instanceof core.AuthRequiredError
       || (core as any).isAuthError?.(err) === true
-      || /重新登录|登录已过期|会话未能建立|looksLoggedOut/i.test(msg);
+      || /重新登录|登录已过期|会话未能建立|looksLoggedOut|未登录|无权限|漫游|roamingurl|登录超时/i.test(msg);
     if (!safe || !authy || !b.state.secret) throw err;
     await b.session.relogin(b.state.secret.username, b.state.secret.password);
     persist(b);
@@ -298,8 +336,9 @@ reg("login", async (b, args) => {
   b.session.fingerprint = b.state.session?.fingerprint ?? b.session.fingerprint;
   b.session.finger3 = b.state.session?.finger3 ?? "";
   const result: any = await b.session.login(username, password);
-  if (result?.state === "need-2fa") {
-    emit({ ev: "need-2fa", methods: result.methods ?? [] });
+  if (result?.state === "need-2fa" || result?.state === "need-learn-2fa") {
+    // login() 直落 learn 二轮墙时同样进交互循环（事件名即阶段名，桥/webui 已认）
+    emit({ ev: result.state, methods: result.methods ?? [] });
     const rl = createInterface({ input: process.stdin });
     for await (const line of rl) {
       const t = line.trim();
@@ -757,6 +796,9 @@ async function main(): Promise<void> {
     try { args = { ...args, ...JSON.parse(first) }; } catch { fail("stdin JSON 不合法"); }
   }
   const b = boot(await loadSecret());
+  if (!["login", "status", "logout"].includes(cmdName)) {
+    await revive(b);
+  }
   try {
     const data = await cmd(b, args);
     emit({ ok: true, data });
