@@ -309,7 +309,14 @@ export class CampusSession {
     try {
       await demoVerify2fa(this.fetchLike, this.#demo, this.#twoFaType, code);
       this.#dbg(this.#demo.debug);
-      const csrf = await demoFinishLearn(this.fetchLike, this.#demo);
+      // 2026-09-19：不再依赖 demoFinishLearn 的落地假设——learn 轮场景 VERITY
+      // 落地链缺 learn 续接（实录：包装课程页仍落 CAS 登录页）。doubleauth
+      // 状态在 id 会话上，重走完整 learn 入口 CHECK 直接放行（与第一轮验证后
+      // roamId+demoEnterLearn 的既有范式对称）。
+      const csrf = await demoEnterLearn(this.fetchLike, this.#demo, this.username, this.#password, this.fingerprint, this.finger3);
+      if (csrf === "need-2fa") {
+        throw new Error("二次认证后仍被要求验证——doubleauth 未在 id 会话生效，请重试登录");
+      }
       this.learn.applyCsrf(csrf);
       this.#learnEraCookies = this.#demo.webvpnCookies;
       this.#dbg(this.#demo.debug);

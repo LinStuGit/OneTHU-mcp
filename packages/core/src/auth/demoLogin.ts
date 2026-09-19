@@ -760,7 +760,7 @@ export async function demoFinishLearn(fetchLike: FetchLike, s: DemoSession): Pro
   const course = await webvpnRequest(fetchLike, "GET", LEARN_COURSE_LIST, { cookies: s.webvpnCookies });
   s.webvpnCookies = course.cookies;
   const csrf = /_csrf=([^&"'\s<]+)/.exec(course.html)?.[1] ?? null;
-  s.debug = "FINISH course=" + course.url.slice(0, 80) + " title=" +
+  s.debug = (s.debug ? s.debug + " ｜ " : "") + "FINISH course=" + course.url.slice(0, 80) + " title=" +
     (/<title>([^<]*)/.exec(course.html)?.[1] ?? "?") + " csrf=" + (csrf ? "yes" : "no") +
     " body=" + course.html.slice(0, 300).replace(/\s+/g, " ");
   if (!csrf) {
