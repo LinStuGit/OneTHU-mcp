@@ -738,7 +738,9 @@ export async function demoEnterLearn(
   }
 
   s.debug = trace.join("\n");
-  throw new Error("网络学堂会话建立失败");
+  const e: Error & { debug?: string } = new Error("网络学堂会话建立失败");
+  e.debug = s.debug.slice(0, 2000);
+  throw e;
 }
 
 /** learn 第二轮 2FA 完成后的收尾：验证链会经漫游入口落地 learn 会话 → 课程页取 csrf */

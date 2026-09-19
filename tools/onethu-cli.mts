@@ -13,8 +13,9 @@
 import * as core from "../packages/core/src/index.js";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 
 /* ── 状态目录 ─────────────────────────────────────────────── */
 
@@ -387,6 +388,44 @@ reg("learn-homework-detail", async (b, a) => {
   return withAuth(b, () => b.learn.getHomeworkDetail(String(a.id)));
 });
 
+reg("learn-homework-page", async (b, a) => {
+  needLogin(b);
+  if (!a?.courseId || !a?.id) fail("需要 courseId 和 id（作业列表项的 id）");
+  return withAuth(b, () => b.learn.getHomeworkPageDetail(
+    String(a.courseId), String(a.id)));
+});
+
+const MIME: Record<string, string> = {
+  pdf: "application/pdf", doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ppt: "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  zip: "application/zip", rar: "application/vnd.rar",
+  txt: "text/plain", md: "text/markdown",
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+};
+
+reg("learn-homework-submit", async (b, a) => {
+  needLogin(b);
+  const id = String(a?.id ?? "").trim();
+  if (!id) fail("需要 id（作业列表项的 id，即 studentHomeworkId）");
+  // 写操作：绝不自动重试（直接调，不包 withAuth 的读重试语义；
+  // submitHomework 内部的 #withRelogin 只在「未登录」时续期一次）
+  const file = a?.file ? String(a.file) : "";
+  const buf = file ? await readFile(file) : null;
+  const name = file ? basename(file) : "";
+  const f = buf ? new File([buf], name, { type: MIME[name.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream" }) : null;
+  const r = await b.learn.submitHomework(id, {
+    content: a?.content == null ? "" : String(a.content),
+    file: f,
+    remove: !!a?.remove,
+  });
+  if (!r.ok) fail(r.msg || "提交失败", b.learn.lastDebug);
+  return { submitted: true, attachment: !!f, removed: !!a?.remove };
+});
+
 reg("learn-notifications", async (b, a) => {
   needLogin(b);
   return withAuth(b, async () => {
@@ -643,13 +682,23 @@ async function main(): Promise<void> {
     try { args = JSON.parse(process.argv[3]); } catch { fail("参数不是合法 JSON"); }
   }
   if (cmdName === "login") {
-    // 密码走 stdin，不进进程列表
-    const raw: string = await new Promise((resolve) => {
-      let buf = "";
-      process.stdin.on("data", (c) => (buf += c.toString("utf-8")));
-      process.stdin.on("end", () => resolve(buf));
+    // 密码走 stdin，不进进程列表：首个非空行 = {"username","password","remember"}。
+    // 逐行读（不等到 EOF）——同一管道随后继续送 2FA 指令行（网页/脚本驱动必需）
+    const first: string = await new Promise((resolve) => {
+      const rl = createInterface({ input: process.stdin });
+      let h: ReturnType<typeof setTimeout> | undefined;
+      const done = (v: string) => { if (h) clearTimeout(h); resolve(v); };
+      h = setTimeout(() => { rl.close(); done(""); }, 120_000);
+      rl.on("line", (l: string) => {
+        const t = l.trim();
+        if (!t) return;
+        done(t);  // 先 resolve 再 close：input 已 EOF 时 close 会同步派发
+        rl.close();
+      });
+      rl.on("close", () => done(""));
     });
-    try { args = { ...args, ...JSON.parse(raw || "{}") }; } catch { fail("stdin JSON 不合法"); }
+    if (!first) fail("stdin 无凭据输入（首行应为 JSON）");
+    try { args = { ...args, ...JSON.parse(first) }; } catch { fail("stdin JSON 不合法"); }
   }
   const b = boot();
   try {
@@ -661,6 +710,7 @@ async function main(): Promise<void> {
       ok: false,
       error: e?.message ?? String(err),
       ...(e?.detail ? { detail: String(e.detail).slice(0, 2000) } : {}),
+      ...(e?.debug ? { debug: String(e.debug).slice(0, 2000) } : {}),
     });
     process.exit(1);
   }
