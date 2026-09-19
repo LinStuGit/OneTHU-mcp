@@ -469,7 +469,10 @@ export class LearnClient {
 
   async #fetchCsrf(): Promise<string | null> {
     try {
-      const html = await this.#http.text(this.#withCsrf(urls.LEARN_COURSE_LIST_PAGE()));
+      // 引导调用不可走 #withCsrf——csrf 为空时 #requireCsrf 抛错，resume 自举死锁
+      // （2026-09-19 实锤：新进程 resume 恒 false，FETCH-ERROR AuthRequiredError）。
+      // 课程列表是 HTML 页，无需 _csrf 查询参数；误报 csrf 由 revive 的真 JSON 调用兜住。
+      const html = await this.#http.text(urls.LEARN_COURSE_LIST_PAGE());
       this.lastDebug = html.slice(0, 1200);
       const m = /_csrf=([^&"\x27\s<]+)/.exec(html);
       return m?.[1] ?? null;

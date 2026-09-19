@@ -318,11 +318,15 @@ export class HttpClient {
       // 手机（webvpn 桶）与桌面（直连桶）原本在不同命名空间互不干扰；直连化
       // 后手机闯进直连 id 命名空间=加入单会话互踢（选课 checkSingle 页=踢人
       // 确认页实锤）。「非校园网适配」的精髓就是这层隔离，恢复原状。
-      goDirect = this.#webVPN ? host === "learn.tsinghua.edu.cn" : PUBLIC_HOSTS.has(host);
+      // 2026-09-19：webVPN 模式下 learn 一并走包装。CLI/插件部署（非校园网桌面
+      // 直连环境）learn-era JSESSIONID 直连被 403 登录页拒（revive.resume 实测），
+      // 而登录链内 webvpn 会话有效——与 seat.lib 同款教训（通道分裂）。桌面
+      // 直连模式不受影响（PUBLIC_HOSTS 判定不变）。
+      goDirect = this.#webVPN ? false : PUBLIC_HOSTS.has(host);
     }
-    const target = this.webVPNEncoder && !goDirect && host && !PUBLIC_HOSTS.has(host)
-      ? this.webVPNEncoder(url)
-      : url;
+    const wrapEligible = !!(this.webVPNEncoder && !goDirect && host) &&
+      (this.#webVPN || !PUBLIC_HOSTS.has(host));
+    const target = wrapEligible ? this.webVPNEncoder(url) : url;
     const cookie = this.#cookieHeaderFor(target);
     this.lastTarget = target;
     this.lastCookieNames = cookie

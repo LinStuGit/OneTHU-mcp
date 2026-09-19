@@ -172,6 +172,9 @@ function boot(secret: Secret | null): Boot {
   const http = new core.HttpClient({ fetch: fetchLike });
   holder.http = http;
   http.webVPNEncoder = core.webvpnWrap;
+  // 本部署（校外/非桌面直连环境）传输与登录链同源：一律 webvpn 包装。
+  // 缺此行时 learn 走 PUBLIC_HOSTS 直连分支 → 403 登录页（2026-09-19）。
+  http.withWebVPN(true);
   const learn = new core.LearnClient(http);
   const info = new core.InfoClient(http);
   const session = new core.CampusSession({
@@ -212,15 +215,23 @@ async function revive(b: Boot): Promise<void> {
     if (await alive()) return;
     // 新进程 #csrf 不在快照里（必空）：先 resume 抓课程页 csrf；但登录页也含
     // _csrf 字样会误报 → 用 getCurrentSemester 的真 JSON 返回验证。
+    const note = (step: string, ok2: boolean) =>
+      process.stderr.write("[revive] " + step + "=" + ok2 + " state=" + b.session.state +
+        " httpDbg=" + String(b.http.lastDebug).slice(0, 200).replace(/\s+/g, " ") +
+        " learnDbg=" + String(b.learn.lastDebug).slice(0, 160).replace(/\s+/g, " ") + "\n");
     let ok = false;
     try { ok = await b.learn.resume(); } catch { ok = false; }
+    note("resume", ok);
     if (ok) ok = await alive();
+    note("alive1", ok);
     if (!ok) { try { ok = await b.session.relearnRoam(); } catch { ok = false; } }
+    note("relearnRoam", ok);
     if (ok) ok = await alive();
-    if (!ok && b.state.secret) {
-      await b.session.relogin(b.state.secret.username, b.state.secret.password);
-      ok = await alive();
-    }
+    note("alive2", ok);
+    // 2026-09-19 教训定案：revive 禁止自动 relogin——learn 二次认证每会话必要，
+    // 非交互 relogin 停在 need-learn-2fa 完不成，且单会话策略会把还活着的
+    // learn 会话踢掉（连环互踢实录）。修不活就原样报错，由用户在网页端
+    // 交互完成两轮验证；resume/relearnRoam（免密、不踢会话）除外。
     if (ok) {
       persist(b);
       process.stderr.write("[revive] session rebuilt\n");
@@ -372,7 +383,9 @@ reg("login", async (b, args) => {
     }
     rl.close();
   }
-  persist(b);
+  // 只在真正 ready 时落盘：半途退出/二轮未完成的状态不得覆盖已有会话
+  // （2026-09-19 实录：need-learn-2fa 半死态覆盖了活会话）
+  if (b.session.state === "ready") persist(b);
   if (args.remember !== false) await saveSecret({ username, password });
   return { username: b.session.username, sessionState: b.session.state };
 });
