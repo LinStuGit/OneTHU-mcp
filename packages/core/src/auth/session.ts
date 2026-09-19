@@ -48,11 +48,11 @@ export interface CampusSessionOptions {
   requireInfo?: boolean;
 }
 
-/** learn 二轮验证的方式兜底（第一轮列表不可用时的合理猜测） */
+/** learn 二轮验证的方式兜底（第一轮列表不可用时的合理猜测；TOTP 默认置顶） */
 const FALLBACK_METHODS: TwoFactorMethod[] = [
+  { type: "totp", name: "TOTP 验证器" },
   { type: "wechat", name: "企业微信" },
   { type: "mobile", name: "手机短信" },
-  { type: "totp", name: "TOTP 验证器" },
 ];
 
 const METHOD_NAMES: Record<string, string> = {
@@ -255,6 +255,11 @@ export class CampusSession {
   #twoFaType = "totp";
   #firstRoundMethods: TwoFactorMethod[] = [];
   #learnMethods: TwoFactorMethod[] = [];
+
+  /** 指定本轮验证方式（默认 totp；webui 显式选择后免发码直验用） */
+  use2FAType(type: string): void {
+    this.#twoFaType = type;
+  }
 
   /** 2FA：发送验证码（字符串模型 SEND_CODE） */
   async send2FA(type: string): Promise<void> {

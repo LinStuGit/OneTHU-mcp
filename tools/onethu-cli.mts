@@ -351,6 +351,7 @@ reg("login", async (b, args) => {
           await b.session.send2FA(String(op.type));
           emit({ ev: "2fa-sent", type: String(op.type) });
         } else if (op.op === "verify") {
+          if (op.type) b.session.use2FAType(String(op.type));
           const round2: any = await b.session.verify2FA(String(op.code), op.trust !== false);
           if (round2 && Array.isArray(round2) && round2.length) {
             emit({ ev: "need-learn-2fa", methods: round2 });
@@ -361,6 +362,7 @@ reg("login", async (b, args) => {
           await b.session.sendLearn2FA(String(op.type));
           emit({ ev: "learn-2fa-sent", type: String(op.type) });
         } else if (op.op === "learn-verify") {
+          if (op.type) b.session.use2FAType(String(op.type));
           await b.session.verifyLearn2FA(String(op.code));
           break;
         }
