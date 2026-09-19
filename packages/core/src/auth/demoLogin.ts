@@ -120,6 +120,18 @@ export async function webvpnRequest(
 ): Promise<WvResult> {
   const { cookies = "", data = null, maxHops = 20 } = opts;
   let currentUrl = url;
+  // 2026-09-19：learn 域一律走包装（通道一致原则，seat.lib 同款教训）。
+  // demo 层原先裸打 learn——桌面直连环境可行；webvpn 链建立的会话直连被
+  // 登录墙拒（FINISH 实录：HTML4 页面无 _csrf）。id/oauth 等公网登录域
+  // 保持直连（CAS 表单流程依赖）。
+  try {
+    const h = new URL(url).hostname;
+    if (h === "learn.tsinghua.edu.cn" && !url.includes("/https/")) {
+      currentUrl = webvpnWrap(url);
+    }
+  } catch {
+    /* 非 URL 原样 */
+  }
   let currentCookies = cookies;
   let danced = false;
 
@@ -748,9 +760,13 @@ export async function demoFinishLearn(fetchLike: FetchLike, s: DemoSession): Pro
   const course = await webvpnRequest(fetchLike, "GET", LEARN_COURSE_LIST, { cookies: s.webvpnCookies });
   s.webvpnCookies = course.cookies;
   const csrf = /_csrf=([^&"'\s<]+)/.exec(course.html)?.[1] ?? null;
-  s.debug = "FINISH course=" + course.url.slice(0, 100) + " csrf=" + (csrf ? "yes" : "no") +
-    " body=" + course.html.slice(0, 200).replace(/\s+/g, " ");
-  if (!csrf) throw new Error("网络学堂会话建立失败（第二轮验证后）");
+  s.debug = "FINISH course=" + course.url.slice(0, 80) + " title=" +
+    (/<title>([^<]*)/.exec(course.html)?.[1] ?? "?") + " csrf=" + (csrf ? "yes" : "no") +
+    " body=" + course.html.slice(0, 300).replace(/\s+/g, " ");
+  if (!csrf) {
+    // 带上 FINISH 现场（落点 URL + 页面头），op-error 直达 webui 诊断行
+    throw new Error("网络学堂会话建立失败（第二轮验证后）" + (s.debug ? " ｜ " + s.debug.slice(0, 400) : ""));
+  }
   return csrf;
 }
 
