@@ -12,6 +12,7 @@
  */
 import * as core from "../packages/core/src/index.js";
 import { createInterface } from "node:readline";
+import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from "node:fs";
@@ -29,8 +30,56 @@ function loadJson(path: string): any | null {
   try { return JSON.parse(readFileSync(path, "utf-8")); } catch { return null; }
 }
 
-function loadState(): { session: core.SessionData | null; secret: Secret | null } {
-  return { session: loadJson(SESSION_FILE), secret: loadJson(SECRET_FILE) };
+function loadSessionData(): core.SessionData | null {
+  return loadJson(SESSION_FILE);
+}
+
+/* ── secret.json 只存 DPAPI(CurrentUser) 加密块，绝不明文落盘。
+ *    管道两端都是 base64（ASCII），避开 PowerShell 控制台编码坑。 ── */
+
+function execOut(cmd: string, args: string[], input: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const c = spawn(cmd, args, { stdio: ["pipe", "pipe", "pipe"] });
+    let out = "";
+    c.stdout.on("data", (d) => (out += d.toString()));
+    c.stderr.on("data", () => { /* 静默 */ });
+    c.on("error", reject);
+    c.on("close", (code) =>
+      code === 0 ? resolve(out.trim()) : reject(new Error(cmd + " exit " + code)));
+    c.stdin.end(input, "utf8");
+  });
+}
+
+async function dpapi(mode: "protect" | "unprotect", b64: string): Promise<string> {
+  const scope = "[Security.Cryptography.DataProtectionScope]::CurrentUser";
+  const script = mode === "protect"
+    ? "$t=[Console]::In.ReadToEnd();"
+      + "Add-Type -AssemblyName System.Security;"
+      + "$b=[Convert]::FromBase64String($t.Trim());"
+      + "[Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Protect($b,$null," + scope + "))"
+    : "$t=[Console]::In.ReadToEnd();"
+      + "Add-Type -AssemblyName System.Security;"
+      + "$b=[Convert]::FromBase64String($t.Trim());"
+      + "$p=[Security.Cryptography.ProtectedData]::Unprotect($b,$null," + scope + ");"
+      + "[Convert]::ToBase64String($p)";
+  const out = await execOut("powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", script], b64);
+  return mode === "protect" ? out
+    : Buffer.from(out, "base64").toString("utf8");
+}
+
+async function loadSecret(): Promise<Secret | null> {
+  const raw = loadJson(SECRET_FILE);
+  if (!raw) return null;
+  try {
+    if (typeof raw.protected === "string" && raw.protected) {
+      const s = JSON.parse(await dpapi("unprotect", raw.protected));
+      if (s && s.username && s.password) return s;
+    } else if (raw.username && raw.password) {
+      return raw; // 遗留明文文件：兼容读（新写入一律加密）
+    }
+  } catch { /* 损坏/换用户：当无 secret */ }
+  return null;
 }
 
 function saveSessionData(s: core.SessionData): void {
@@ -38,9 +87,16 @@ function saveSessionData(s: core.SessionData): void {
   writeFileSync(SESSION_FILE, JSON.stringify(s, null, 1), "utf-8");
 }
 
-function saveSecret(s: Secret): void {
+async function saveSecret(s: Secret): Promise<void> {
+  if (process.platform !== "win32") {
+    fail("记住密码目前仅支持 Windows（DPAPI 加密）；不加密就不保存");
+  }
+  const plain = Buffer.from(JSON.stringify(s), "utf8").toString("base64");
+  const blob = await dpapi("protect", plain);
   mkdirSync(STATE_DIR, { recursive: true });
-  writeFileSync(SECRET_FILE, JSON.stringify(s, null, 1), "utf-8");
+  writeFileSync(SECRET_FILE,
+    JSON.stringify({ username: s.username, protected: blob }, null, 1),
+    "utf-8");
 }
 
 function clearState(): void {
@@ -109,8 +165,8 @@ interface Boot {
   state: { session: core.SessionData | null; secret: Secret | null };
 }
 
-function boot(): Boot {
-  const state = loadState();
+function boot(secret: Secret | null): Boot {
+  const state = { session: loadSessionData(), secret };
   const holder: { http: core.HttpClient | null } = { http: null };
   const fetchLike = makeFetchLike(() => holder.http?.jar ?? null);
   const http = new core.HttpClient({ fetch: fetchLike });
@@ -276,7 +332,7 @@ reg("login", async (b, args) => {
     rl.close();
   }
   persist(b);
-  if (args.remember !== false) saveSecret({ username, password });
+  if (args.remember !== false) await saveSecret({ username, password });
   return { username: b.session.username, sessionState: b.session.state };
 });
 
@@ -700,7 +756,7 @@ async function main(): Promise<void> {
     if (!first) fail("stdin 无凭据输入（首行应为 JSON）");
     try { args = { ...args, ...JSON.parse(first) }; } catch { fail("stdin JSON 不合法"); }
   }
-  const b = boot();
+  const b = boot(await loadSecret());
   try {
     const data = await cmd(b, args);
     emit({ ok: true, data });
