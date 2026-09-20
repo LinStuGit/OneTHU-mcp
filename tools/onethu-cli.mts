@@ -15,7 +15,7 @@ import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, appendFileSync, unlinkSync, existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 
 /* ── 状态目录 ─────────────────────────────────────────────── */
@@ -166,6 +166,16 @@ interface Boot {
 }
 
 function boot(secret: Secret | null): Boot {
+  // ONETHU_DEBUG=1 或 <STATE_DIR>/debug.on 存在 → demo 层逐跳日志落
+  // <STATE_DIR>/webvpn-debug.log。标记文件开关是因为 sidecar 由常驻 control_server
+  // 拉起、继承不到会话里新设的环境变量。
+  if (process.env.ONETHU_DEBUG || existsSync(join(STATE_DIR, "debug.on"))) {
+    const dbg = join(STATE_DIR, "webvpn-debug.log");
+    mkdirSync(STATE_DIR, { recursive: true });
+    core.setWebvpnLog((line: string) => {
+      try { appendFileSync(dbg, line + "\n", "utf-8"); } catch { /* 忽略 */ }
+    });
+  }
   const state = { session: loadSessionData(), secret };
   const holder: { http: core.HttpClient | null } = { http: null };
   const fetchLike = makeFetchLike(() => holder.http?.jar ?? null);

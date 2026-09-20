@@ -154,6 +154,8 @@ export async function webvpnRequest(
       body,
       redirect: "manual",
     });
+    webvpnLog?.(`[WV] ${method} ${currentUrl.slice(0, 120)} -> ${resp.status}` +
+      ` jar=[${currentCookies.split(";").map((x) => x.trim().split("=")[0]).filter(Boolean).join(",")}]`);
 
     // 更新 cookies（demo 语义 + 同名去重：Map 后值覆盖，浏览器同款）。
     // demo 的 replace 正则在多阶段流程（登录→2FA→回调分多次调用）下会留下重复项，
@@ -176,6 +178,7 @@ export async function webvpnRequest(
       let location = resp.headers.get("location") ?? undefined;
       if (!location) return { html: "", cookies: currentCookies, url: currentUrl };
       if (location.startsWith("/")) location = new URL(currentUrl).origin + location;
+      webvpnLog?.(`[WV->] ${resp.status} Location: ${location.slice(0, 120)}`);
       currentUrl = location;
       continue;
     }
@@ -598,7 +601,10 @@ export async function demoVerify2fa(
   code: string,
 ): Promise<void> {
   const action = type === "totp" ? "VERITY_TOTP_CODE" : "VERITY_CODE";
+  const jarNames = () => "jar=[" + s.webvpnCookies.split(";").map((x) => x.trim().split("=")[0]).filter(Boolean).join(",") + "]";
+  webvpnLog?.(`[2FA] 开始 ${action} ${jarNames()}`);
   const { json, text } = await doubleAuthPost(fetchLike, s, { action, vericode: code.trim() });
+  webvpnLog?.(`[2FA] VERITY后 ${jarNames()}`);
   if (!json || json.result !== "success") {
     throw new Error(String(json?.msg ?? "验证码校验失败") + (json ? "" : " " + text.slice(0, 120)));
   }
@@ -611,6 +617,7 @@ export async function demoVerify2fa(
     });
     s.webvpnCookies = page.cookies;
     trace.push("LAND " + page.url.slice(0, 110) + " 成功=" + page.html.includes("登录成功"));
+    webvpnLog?.(`[2FA] LAND后 ${jarNames()}`);
     page = await resumeAutoForm(fetchLike, s, page, trace);
     page = await followMetaRefresh(fetchLike, s, page, trace);
     // 落地页 JS 续跳（redirect2Jsp 实录 forms=0 只剩 script）——先于通用 <a> 锚点
