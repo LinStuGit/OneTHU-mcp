@@ -499,6 +499,25 @@ export async function demoSendCode(fetchLike: FetchLike, s: DemoSession, type: s
 }
 
 /** doubleAuth VERITY(_TOTP)_CODE + redirectUrl 落地 + 回调消费（字符串模型，全部 webvpnRequest） */
+async function followMetaRefresh(
+  fetchLike: FetchLike,
+  s: DemoSession,
+  r: WvResult,
+  trace: string[],
+): Promise<WvResult> {
+  // 2026-09-20：doubleauth→id→service 链常在落地页用 meta-refresh/自动表单续跳，
+  // 单锚点 GET 停在 200（认证成功页），learn 会话没落地。自动跟随续链。
+  for (let i = 0; i < 8; i++) {
+    const m = /<meta\s+http-equiv=["']refresh["']\s+content=["'][^"]*url=([^"'>]+)/i.exec(r.html);
+    if (!m) break;
+    const next = m[1].startsWith("http") ? m[1] : new URL(m[1], r.url).toString();
+    trace.push("REFRESH->" + next.slice(0, 100));
+    r = await webvpnRequest(fetchLike, "GET", next, { cookies: s.webvpnCookies });
+    s.webvpnCookies = r.cookies;
+  }
+  return r;
+}
+
 export async function demoVerify2fa(
   fetchLike: FetchLike,
   s: DemoSession,
@@ -514,18 +533,20 @@ export async function demoVerify2fa(
   const trace: string[] = ["VERITY ok"];
   if (redirectUrl) {
     // 落地页（登录成功）→ 回调锚点（oauth→webvpn，wengine 会话进字符串）
-    const page = await webvpnRequest(fetchLike, "GET", redirectUrl.startsWith("http") ? redirectUrl : ID_PREFIX + redirectUrl, {
+    let page = await webvpnRequest(fetchLike, "GET", redirectUrl.startsWith("http") ? redirectUrl : ID_PREFIX + redirectUrl, {
       cookies: s.webvpnCookies,
     });
     s.webvpnCookies = page.cookies;
     trace.push("LAND " + page.url.slice(0, 110) + " 成功=" + page.html.includes("登录成功"));
+    page = await followMetaRefresh(fetchLike, s, page, trace);
     const anchor = /<a[^>]+href="([^"]+)"/i.exec(page.html)?.[1];
     if (anchor) {
-      const done = await webvpnRequest(fetchLike, "GET", anchor.startsWith("http") ? anchor : new URL(anchor, page.url).toString(), {
+      let done = await webvpnRequest(fetchLike, "GET", anchor.startsWith("http") ? anchor : new URL(anchor, page.url).toString(), {
         cookies: s.webvpnCookies,
       });
       s.webvpnCookies = done.cookies;
-      trace.push("ANCHOR " + done.url.slice(0, 110));
+      done = await followMetaRefresh(fetchLike, s, done, trace);
+      trace.push("ANCHOR " + done.url.slice(0, 110) + " 锚=" + /_csrf|ticket|roam/i.test(done.url));
     }
   }
   s.loginState = "logged_in";

@@ -315,7 +315,8 @@ export class CampusSession {
       // roamId+demoEnterLearn 的既有范式对称）。
       const csrf = await demoEnterLearn(this.fetchLike, this.#demo, this.username, this.#password, this.fingerprint, this.finger3);
       if (csrf === "need-2fa") {
-        throw new Error("二次认证后仍被要求验证——doubleauth 未在 id 会话生效，请重试登录");
+        throw new Error("二次认证后仍被要求验证——doubleauth 未在 id 会话生效，请重试登录" +
+          (this.#demo.debug ? " ｜ " + this.#demo.debug.slice(0, 600) : ""));
       }
       this.learn.applyCsrf(csrf);
       this.#learnEraCookies = this.#demo.webvpnCookies;
