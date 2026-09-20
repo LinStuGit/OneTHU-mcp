@@ -825,6 +825,18 @@ async function main(): Promise<void> {
       ...(e?.detail ? { detail: String(e.detail).slice(0, 2000) } : {}),
       ...(e?.debug ? { debug: String(e.debug).slice(0, 2000) } : {}),
     });
+    // 完整 trace 落盘（不截断）——网页 debug 框只有几百字符，排障靠这个文件
+    if (cmdName === "login" || e?.debug) {
+      try {
+        writeFileSync(
+          join(STATE_DIR, "last-login-trace.txt"),
+          "time=" + new Date().toISOString() + "\ncmd=" + cmdName +
+          "\nerror=" + (e?.message ?? String(err)) +
+          "\n\n" + String(e?.debug ?? "") + "\n",
+          "utf-8",
+        );
+      } catch { /* 落盘失败不掩盖原错误 */ }
+    }
     process.exit(1);
   }
 }

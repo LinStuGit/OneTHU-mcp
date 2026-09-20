@@ -294,6 +294,7 @@ export class CampusSession {
       return null; // 无需第二轮
     } catch (e) {
       this.#dbg("VERIFY-FAIL " + String(e) + "\n" + this.#demo.debug);
+      (e as Error & { debug?: string }).debug = this.#demo.debug;
       throw e;
     }
   }
@@ -322,6 +323,8 @@ export class CampusSession {
       this.state = "ready";
     } catch (e) {
       this.#dbg("LEARN2FA-FAIL " + String(e) + "\n" + this.#demo.debug);
+      // 完整 trace 挂回错误（CLI 失败落盘用）——webui 截断版不够排障
+      (e as Error & { debug?: string }).debug = this.#demo.debug;
       throw e;
     }
   }
