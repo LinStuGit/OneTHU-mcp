@@ -545,7 +545,23 @@ async function resumeAutoForm(
     if (/learn|jsdk|https-|777[0-9a-f]{2}/i.test(action)) score += 120;
     if (score > bestScore) { bestScore = score; best = { action, hidden }; }
   }
-  if (!best) return r;
+  if (!best) {
+    // 无可用表单（全部被拒/无 hidden）时记录现场诊断：有几张表、各 action 为何被弃，
+    // 以及页面靠什么续跳（meta-refresh / iframe / script），避免盲猜。
+    const dump = forms
+      .map((f) => {
+        const a = /action=["']([^"']+)["']/i.exec(f[1] ?? "")?.[1] ?? "(无action)";
+        const h = (f[2] ?? "").match(/<input[^>]*type=["']hidden["']/gi)?.length ?? 0;
+        return a.slice(0, 70) + "[hidden=" + h + "]";
+      })
+      .join("  |  ");
+    trace.push("AUTOFORM无表单 forms=" + forms.length +
+      (dump ? " 列表=" + dump.slice(0, 500) : "") +
+      " 续跳=" + (/<meta[^>]+http-equiv=["']refresh["']/i.test(r.html) ? "meta" : "") +
+      (/<iframe/i.test(r.html) ? "+iframe" : "") +
+      (/location\.(href|replace)|setTimeout|submit\(\)/i.test(r.html) ? "+script" : ""));
+    return r;
+  }
   const action = best.action;
   trace.push("AUTOFORM POST " + Object.keys(best.hidden).length + " hidden -> " + action.slice(0, 90));
   const resume = await webvpnRequest(fetchLike, "POST", action, { cookies: s.webvpnCookies, data: best.hidden });
@@ -584,7 +600,10 @@ export async function demoVerify2fa(
       s.webvpnCookies = done.cookies;
       done = await resumeAutoForm(fetchLike, s, done, trace);
       done = await followMetaRefresh(fetchLike, s, done, trace);
-      trace.push("ANCHOR " + done.url.slice(0, 110) + " 锚=" + /_csrf|ticket|roam/i.test(done.url));
+      const doneTitle = /<title>([^<]*)/i.exec(done.html)?.[1] ?? "";
+      trace.push("ANCHOR " + done.url.slice(0, 110) + " 锚=" + /_csrf|ticket|roam/i.test(done.url) +
+        " csrfBody=" + /_csrf/i.test(done.html) +
+        " title=" + doneTitle + " 电子身份=" + done.html.length + "b");
     }
   }
   s.loginState = "logged_in";
