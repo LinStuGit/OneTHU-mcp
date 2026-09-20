@@ -24,8 +24,9 @@ export interface BrowserLoginResult {
   csrf: string;
   /** webvpn.tsinghua.edu.cn 域 cookie 串（demo 字符串模型的门户会话） */
   portalCookies: string;
-  /** id.tsinghua.edu.cn 的 JSESSIONID（重漫游主凭据） */
-  idJsid: string;
+  /** id.tsinghua.edu.cn 域完整 cookie 串（JSESSIONID+TSINGHUAUSERID；
+   *  learn 直连重漫游的认证 cookie 对，learnX/thu-learn-lib 路线的凭据） */
+  idCookies: string;
 }
 
 /** 启动真实浏览器（Edge → Chrome 逐个试，都有头）。返回已打开门户登录页的上下文。 */
@@ -107,12 +108,13 @@ export async function browserLogin(opts: {
       const portalCookies = (await ctx.cookies("https://webvpn.tsinghua.edu.cn/"))
         .map((c) => `${c.name}=${c.value}`)
         .join("; ");
+      const idCookies = (await ctx.cookies("https://id.tsinghua.edu.cn/"))
+        .map((c) => `${c.name}=${c.value}`)
+        .join("; ");
       const result: BrowserLoginResult = {
         csrf,
         portalCookies,
-        idJsid: (await ctx.cookies("https://id.tsinghua.edu.cn/"))
-          .filter((c) => c.name === "JSESSIONID")
-          .map((c) => c.value)[0] ?? "",
+        idCookies,
       };
       onStage("网络学堂会话已建立，正在导出会话并关闭浏览器…");
       await ctx.close().catch(() => undefined);

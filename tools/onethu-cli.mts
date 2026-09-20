@@ -202,7 +202,7 @@ function boot(secret: Secret | null): Boot {
       session.username = state.session.username;
       if (state.session.fingerprint) session.fingerprint = state.session.fingerprint;
       session.finger3 = state.session.finger3 ?? "";
-      session.restoreDemo(state.session.demoCookies ?? "", state.session.idJsid ?? "");
+      session.restoreDemo(state.session.demoCookies ?? "", state.session.idJsid ?? "", state.session.idCookies ?? "");
       session.restoreInfoCookies(state.session.infoCookies ?? "");
       if (state.secret) session.injectCredentials(state.secret.username, state.secret.password);
       // cookiesJson 在快照里时分域 cookie 是忠实的，reseed() 会用单 JSESSIONID 的
@@ -236,6 +236,7 @@ async function revive(b: Boot): Promise<void> {
     note("alive1", ok);
     if (!ok) { try { ok = await b.session.relearnRoam(); } catch { ok = false; } }
     note("relearnRoam", ok);
+    if (!ok) process.stderr.write("[revive] RE-ROAM trace: " + b.session.debugSnapshot.slice(0, 300) + "\n");
     if (ok) ok = await alive();
     note("alive2", ok);
     // 2026-09-19 教训定案：revive 禁止自动 relogin——learn 二次认证每会话必要，
@@ -264,6 +265,7 @@ function persist(b: Boot): void {
     cookiesJson: b.http.jar.serialize(),
     demoCookies: b.session.demoSnapshot,
     idJsid: b.session.idJsidSnapshot,
+    idCookies: b.session.idCookiesSnapshot,
     infoCookies: b.session.infoEraSnapshot,
     finger3: b.session.finger3,
     savedAt: Date.now(),
@@ -372,7 +374,7 @@ reg("login", async (b, args) => {
         onStage: (m) => emit({ ev: "browser-stage", message: m }),
       });
       if (prefUser) b.session.injectCredentials(prefUser, prefPass);
-      b.session.completeBrowserLogin(r.csrf, r.portalCookies, r.idJsid);
+      b.session.completeBrowserLogin(r.csrf, r.portalCookies, r.idCookies);
       if (prefUser && args.remember !== false) await saveSecret({ username: prefUser, password: prefPass });
       persist(b);
       return { username: prefUser || b.session.username, sessionState: b.session.state, via: "browser" };

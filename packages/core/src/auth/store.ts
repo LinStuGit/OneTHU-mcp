@@ -15,6 +15,8 @@ export interface SessionData {
   infoCookies?: string;
   /** id CAS 主会话（JSESSIONID，SSO 主凭据）——learn 会话过期后用它重新漫游 */
   idJsid?: string;
+  /** id CAS 域完整 cookie 串（浏览器登录导出）——直连重漫游的认证 cookie 对 */
+  idCookies?: string;
   savedAt: number;
 }
 

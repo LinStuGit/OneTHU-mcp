@@ -341,18 +341,30 @@ export class CampusSession {
   }
 
   /** 重启恢复：注入持久化的 demo 字符串会话（含 id CAS 主会话，重漫游主凭据） */
-  restoreDemo(cookies: string, idJsid = ""): void {
+  restoreDemo(cookies: string, idJsid = "", idCookies = ""): void {
     if (!this.#demo) return;
     if (cookies) this.#demo.webvpnCookies = cookies;
     if (idJsid && !this.#demo.idJsid) this.#demo.idJsid = idJsid;
+    if (idCookies) this.#demo.idCookies = idCookies;
+  }
+
+  /** id 域完整 cookie 串快照（持久化用；浏览器登录导出，直连重漫游凭据） */
+  get idCookiesSnapshot(): string {
+    return this.#demo.idCookies ?? "";
+  }
+
+  /** demo 层诊断快照（revive/排障打印用） */
+  get debugSnapshot(): string {
+    return this.#demo.debug ?? "";
   }
 
   /** 浏览器驱动登录的收尾（2026-09-20 重构）：真实 Chromium 完成 CAS、
    *  doubleAuth、redirect2Jsp JS 续跳全链（浏览器内会话自洽，字符串模型
-   *  不参与登录），成功后把导出的门户 cookie 串与 learn csrf 注入会话——
-   *  等价 verifyLearn2FA 的成功尾部。wengine 模型里门户会话即一切。 */
-  completeBrowserLogin(csrf: string, portalCookies: string, idJsid = ""): void {
-    this.restoreDemo(portalCookies, idJsid);
+   *  不参与登录），成功后把导出的门户 cookie 串、id 域 cookie 串与 learn
+   *  csrf 注入会话。learn 数据面走直连（learnX 路线），learn 会话由
+   *  relearnRoam 用 idCookies 重漫游建立。 */
+  completeBrowserLogin(csrf: string, portalCookies: string, idCookies: string): void {
+    this.restoreDemo(portalCookies, "", idCookies);
     this.learn.applyCsrf(csrf);
     this.#learnEraCookies = this.#demo.webvpnCookies;
     this.#seedJar();

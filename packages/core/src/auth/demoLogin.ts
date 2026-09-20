@@ -24,6 +24,10 @@ export interface DemoSession {
   /** id CAS 主会话（登录成功后、learn 以同名 JSESSIONID 覆盖前抓取）——
    *  resume 时 learn 会话过期的重漫游主凭据（SSO：已认证 id 会话随要随发票） */
   idJsid: string;
+  /** id CAS 域完整 cookie 串（JSESSIONID+TSINGHUAUSERID 等；浏览器登录导出）。
+   *  重漫游时整串换入——id 认证是 cookie 对，只补 JSESSIONID 缺
+   *  TSINGHUAUSERID 会被 id 视为未认证（2026-09-20 直连漫游失败实录）。 */
+  idCookies: string;
   /** roam-id（webvpn 服务绑定二次登录）独立诊断——不并入 debug，
    *  防止被 demoEnterLearn 的 s.debug 覆盖（17:40 观测缺陷的教训） */
   idRoamDebug: string;
@@ -39,6 +43,7 @@ export function newDemoSession(): DemoSession {
     debug: "",
     loginState: "idle",
     idJsid: "",
+    idCookies: "",
     idRoamDebug: "",
   };
 }
@@ -120,18 +125,10 @@ export async function webvpnRequest(
 ): Promise<WvResult> {
   const { cookies = "", data = null, maxHops = 20 } = opts;
   let currentUrl = url;
-  // 2026-09-19：learn 域一律走包装（通道一致原则，seat.lib 同款教训）。
-  // demo 层原先裸打 learn——桌面直连环境可行；webvpn 链建立的会话直连被
-  // 登录墙拒（FINISH 实录：HTML4 页面无 _csrf）。id/oauth 等公网登录域
-  // 保持直连（CAS 表单流程依赖）。
-  try {
-    const h = new URL(url).hostname;
-    if (h === "learn.tsinghua.edu.cn" && !url.includes("/https/")) {
-      currentUrl = webvpnWrap(url);
-    }
-  } catch {
-    /* 非 URL 原样 */
-  }
+  // 2026-09-20 定案（learnX/thu-learn-lib 路线）：learn 域一律直连——CAS 表单/漫游/
+  // 课程页全走直连通道（learnX 客户端本就直连 learn.tsinghua.edu.cn，无 webvpn）。
+  // 0919 的 learn 包装规则作废：包装的 learn 会话由 wengine 服务端持有，门户 cookie
+  // 复放被弹 /login（逐跳日志实录），通道一致原则的正确解是 learn 整体回直连。
   let currentCookies = cookies;
   let danced = false;
 
@@ -791,10 +788,10 @@ export async function demoEnterLearn(
   // 首次捕获为准（后续调用字符串里已是 learn 会话）。
   s.idJsid ||= /JSESSIONID=([^;\s]+)/.exec(s.webvpnCookies)?.[1] ?? "";
 
-  // ── 路径一（demo 模型，单次 2FA）：wrapped /f/login 是 learn 的服务端 302 CAS 入口
-  //    （zhjwxk xklogin.do 的等价物；首页 / 只是静态登录页）
+  // ── 路径一（demo 模型，单次 2FA）：/f/login 是 learn 的服务端 302 CAS 入口
+  //    （zhjwxk xklogin.do 的等价物；首页 / 只是静态登录页）——learnX 路线直连
   try {
-    const entry = await webvpnRequest(fetchLike, "GET", webvpnWrap(LEARN_F_LOGIN), {
+    const entry = await webvpnRequest(fetchLike, "GET", LEARN_F_LOGIN, {
       cookies: s.webvpnCookies,
     });
     s.webvpnCookies = entry.cookies;
@@ -911,8 +908,12 @@ export async function demoReenterLearn(
   const CAS_FORM = "https://id.tsinghua.edu.cn/do/off/ui/auth/login/form/bb5df85216504820be7bba2b0ae1535b/0";
   const trace: string[] = ["RE-ROAM jsid=" + (idJsid ? idJsid.slice(0, 8) + "…" : "(none)")];
 
-  // 1. 写回 id 主会话（此时字符串里的 JSESSIONID 是已过期的 learn 会话）
-  if (idJsid) {
+  // 1. 写回 id 主会话（此时字符串里的 JSESSIONID 是已过期的 learn 会话）。
+  //    有完整 id cookie 串（浏览器登录导出）就整串换入——id 认证是
+  //    JSESSIONID+TSINGHUAUSERID 一对，单补 JSESSIONID 会被视为未认证。
+  if (s.idCookies) {
+    s.webvpnCookies = s.idCookies;
+  } else if (idJsid) {
     s.webvpnCookies = /JSESSIONID=/.test(s.webvpnCookies)
       ? s.webvpnCookies.replace(/JSESSIONID=[^;]*/, "JSESSIONID=" + idJsid)
       : s.webvpnCookies + "; JSESSIONID=" + idJsid;
