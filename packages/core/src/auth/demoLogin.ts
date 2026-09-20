@@ -518,6 +518,25 @@ async function followMetaRefresh(
   return r;
 }
 
+/** 落地页（redirect2Jsp 等）无表单、靠 JS 续跳（实录：forms=0 续跳=+script）。
+ *  服务端执行不了 JS，只能从脚本里抠出目标 URL 自己 GET——等价浏览器的
+ *  location.replace/href/assign。返回第一个像服务入口的 URL（排除自身/locale）。 */
+function scriptHref(html: string): string {
+  const pats = [
+    /location(?:\.href)?\s*=\s*["']([^"']+)["']/i,
+    /location\.replace\(\s*["']([^"']+)["']\s*\)/i,
+    /location\.assign\(\s*["']([^"']+)["']\s*\)/i,
+    /window\.location\s*=\s*["']([^"']+)["']/i,
+    /\.action\s*=\s*["']([^"']+)["']/i,
+  ];
+  for (const p of pats) {
+    const u = p.exec(html)?.[1] ?? "";
+    if (!u || u === "#" || /locale|i18n|logout/i.test(u)) continue;
+    return u;
+  }
+  return "";
+}
+
 async function resumeAutoForm(
   fetchLike: FetchLike,
   s: DemoSession,
@@ -592,6 +611,16 @@ export async function demoVerify2fa(
     trace.push("LAND " + page.url.slice(0, 110) + " 成功=" + page.html.includes("登录成功"));
     page = await resumeAutoForm(fetchLike, s, page, trace);
     page = await followMetaRefresh(fetchLike, s, page, trace);
+    // 落地页 JS 续跳（redirect2Jsp 实录 forms=0 只剩 script）——先于通用 <a> 锚点
+    const jsTarget = scriptHref(page.html);
+    if (jsTarget) {
+      const next = jsTarget.startsWith("http") ? jsTarget : new URL(jsTarget, page.url).toString();
+      trace.push("SCRIPT->" + next.slice(0, 100));
+      page = await webvpnRequest(fetchLike, "GET", next, { cookies: s.webvpnCookies });
+      s.webvpnCookies = page.cookies;
+      page = await resumeAutoForm(fetchLike, s, page, trace);
+      page = await followMetaRefresh(fetchLike, s, page, trace);
+    }
     const anchor = /<a[^>]+href="([^"]+)"/i.exec(page.html)?.[1];
     if (anchor) {
       let done = await webvpnRequest(fetchLike, "GET", anchor.startsWith("http") ? anchor : new URL(anchor, page.url).toString(), {
@@ -840,6 +869,7 @@ export async function demoFinishLearn(fetchLike: FetchLike, s: DemoSession): Pro
   const csrf = /_csrf=([^&"'\s<]+)/.exec(course.html)?.[1] ?? null;
   s.debug = (s.debug ? s.debug + " ｜ " : "") + "FINISH course=" + course.url.slice(0, 80) + " title=" +
     (/<title>([^<]*)/.exec(course.html)?.[1] ?? "?") + " csrf=" + (csrf ? "yes" : "no") +
+    " cookies=" + s.webvpnCookies.split(";").map((x) => x.trim().split("=")[0]).filter(Boolean).join(",") +
     " body=" + course.html.slice(0, 300).replace(/\s+/g, " ");
   if (!csrf) {
     // 带上 FINISH 现场（落点 URL + 页面头），op-error 直达 webui 诊断行
