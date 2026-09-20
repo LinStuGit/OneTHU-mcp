@@ -347,13 +347,16 @@ export async function demoLogin2fa(
     ? s.twoFaAction
     : new URL(s.twoFaAction || "", s.twoFaUrl).toString();
 
+  // 门户会话快照：otp 提交是直连 id，id 的 Set-Cookie 会把字符串里门户的
+  // JSESSIONID 挤掉（demoVerify2fa 同款实录）。提交前存、落地后写回。
+  const portalJar = s.webvpnCookies;
   const result = await webvpnRequest(fetchLike, "POST", otpUrl, {
     cookies: s.webvpnCookies,
     data: { ...s.twoFaHidden, otp: code.trim() },
   });
 
   const finalUrl = result.url || "";
-  s.webvpnCookies = result.cookies;
+  s.webvpnCookies = portalJar;
 
   if (finalUrl.includes("webvpn") && !finalUrl.includes("login/form")) {
     s.loginState = "logged_in";
@@ -603,6 +606,10 @@ export async function demoVerify2fa(
   const action = type === "totp" ? "VERITY_TOTP_CODE" : "VERITY_CODE";
   const jarNames = () => "jar=[" + s.webvpnCookies.split(";").map((x) => x.trim().split("=")[0]).filter(Boolean).join(",") + "]";
   webvpnLog?.(`[2FA] 开始 ${action} ${jarNames()}`);
+  // 门户会话快照（包装链的命根）：VERITY/redirect2Jsp 全是直连 id，id 会 Set-Cookie
+  // 自己的 JSESSIONID+TSINGHUAUSERID，把单字符串里门户的 JSESSIONID 挤掉（2026-09-20
+  // 逐跳日志实锤：VERITY 后包装请求全被门户当未登录弹回 CAS）。落地后写回再走包装链。
+  const portalJar = s.webvpnCookies;
   const { json, text } = await doubleAuthPost(fetchLike, s, { action, vericode: code.trim() });
   webvpnLog?.(`[2FA] VERITY后 ${jarNames()}`);
   if (!json || json.result !== "success") {
@@ -617,7 +624,9 @@ export async function demoVerify2fa(
     });
     s.webvpnCookies = page.cookies;
     trace.push("LAND " + page.url.slice(0, 110) + " 成功=" + page.html.includes("登录成功"));
-    webvpnLog?.(`[2FA] LAND后 ${jarNames()}`);
+    // 直连 id 段结束，写回门户会话再碰任何包装 URL
+    s.webvpnCookies = portalJar;
+    webvpnLog?.(`[2FA] LAND后 jar已还原门户会话 ${jarNames()}`);
     page = await resumeAutoForm(fetchLike, s, page, trace);
     page = await followMetaRefresh(fetchLike, s, page, trace);
     // 落地页 JS 续跳（redirect2Jsp 实录 forms=0 只剩 script）——先于通用 <a> 锚点
