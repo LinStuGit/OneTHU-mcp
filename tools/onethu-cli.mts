@@ -378,7 +378,18 @@ reg("login", async (b, args) => {
           break;
         }
       } catch (err) {
-        emit({ ev: "op-error", error: err instanceof Error ? err.message : String(err) });
+        const e2 = err as Error & { debug?: string };
+        emit({ ev: "op-error", error: e2 instanceof Error ? e2.message : String(e2) });
+        // 完整 trace 落盘（不截断）——网页 debug 框只有几百字符，排障靠这个文件
+        try {
+          writeFileSync(
+            join(STATE_DIR, "last-login-trace.txt"),
+            "time=" + new Date().toISOString() + "\nop=" + String(op.op) +
+            "\nerror=" + (e2 instanceof Error ? e2.message : String(e2)) +
+            "\n\n" + String(e2?.debug ?? "") + "\n",
+            "utf-8",
+          );
+        } catch { /* 落盘失败不掩盖原错误 */ }
       }
     }
     rl.close();
