@@ -518,6 +518,33 @@ async function followMetaRefresh(
   return r;
 }
 
+async function resumeAutoForm(
+  fetchLike: FetchLike,
+  s: DemoSession,
+  r: WvResult,
+  trace: string[],
+): Promise<WvResult> {
+  // 2026-09-20：id CAS doubleauth 落地页（redirect2Jsp 等）是"登录成功"自动
+  // POST 表单——hidden 字段带着原服务续接参数（otpForm 同款提取逻辑）。
+  // 只 followMetaRefresh/GO anchor 拿不到 jsdk 续期，learn 领不到票（实录）。
+  const fm = /<form[^>]*action="([^"]*)"/i.exec(r.html);
+  const pageLooksLikeSubmit = /redirect2Jsp|onload|theform|正在处理|登录成功|doFormSubmit/i.test(r.html);
+  if (!fm || !pageLooksLikeSubmit) return r;
+  let action = fm[1]!;
+  if (action && !action.startsWith("http")) action = new URL(action, r.url).toString();
+  const hidden: Record<string, string> = {};
+  const re = /<input[^>]*type=["']hidden["'][^>]*name="([^"]*)"[^>]*value="([^"]*)"/gi;
+  let m: RegExpExecArray | null;
+  let cnt = 0;
+  while ((m = re.exec(r.html)) !== null) { hidden[m[1]!] = m[2]!; cnt++; }
+  if (cnt === 0) return r;
+  trace.push("AUTOFORM POST " + cnt + " hidden -> " + action.slice(0, 90));
+  const resume = await webvpnRequest(fetchLike, "POST", action, { cookies: s.webvpnCookies, data: hidden });
+  s.webvpnCookies = resume.cookies;
+  trace.push("AUTOFORM终=" + resume.url.slice(0, 100) + " csrf=" + /_csrf/i.test(resume.html) + " len=" + resume.html.length);
+  return resume;
+}
+
 export async function demoVerify2fa(
   fetchLike: FetchLike,
   s: DemoSession,
@@ -538,6 +565,7 @@ export async function demoVerify2fa(
     });
     s.webvpnCookies = page.cookies;
     trace.push("LAND " + page.url.slice(0, 110) + " 成功=" + page.html.includes("登录成功"));
+    page = await resumeAutoForm(fetchLike, s, page, trace);
     page = await followMetaRefresh(fetchLike, s, page, trace);
     const anchor = /<a[^>]+href="([^"]+)"/i.exec(page.html)?.[1];
     if (anchor) {
@@ -545,6 +573,7 @@ export async function demoVerify2fa(
         cookies: s.webvpnCookies,
       });
       s.webvpnCookies = done.cookies;
+      done = await resumeAutoForm(fetchLike, s, done, trace);
       done = await followMetaRefresh(fetchLike, s, done, trace);
       trace.push("ANCHOR " + done.url.slice(0, 110) + " 锚=" + /_csrf|ticket|roam/i.test(done.url));
     }
