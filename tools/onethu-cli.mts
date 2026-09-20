@@ -356,6 +356,28 @@ reg("login", async (b, args) => {
   if (!username || !password) fail("需要 username / password");
   b.session.fingerprint = b.state.session?.fingerprint ?? b.session.fingerprint;
   b.session.finger3 = b.state.session?.finger3 ?? "";
+
+  // 浏览器驱动登录（2026-09-20 重构，默认开；ONETHU_BROWSER=0 回退 HTTP 链）。
+  // 真实 Chromium 完成 CAS/doubleAuth/JS 续跳全链，HTML 字符串模型只做数据面。
+  if (process.env.ONETHU_BROWSER !== "0") {
+    try {
+      const { browserLogin } = await import("./browser-login.mjs");
+      const r = await browserLogin({
+        username, password,
+        profileDir: join(STATE_DIR, "browser-profile"),
+        onStage: (m) => emit({ ev: "browser-stage", message: m }),
+      });
+      b.session.injectCredentials(username, password);
+      b.session.completeBrowserLogin(r.csrf, r.portalCookies, r.idJsid);
+      if (args.remember !== false) await saveSecret({ username, password });
+      persist(b);
+      return { username, sessionState: b.session.state, via: "browser" };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      emit({ ev: "browser-stage", message: "浏览器登录未完成（" + msg.slice(0, 160) + "），回退 HTTP 链" });
+    }
+  }
+
   const result: any = await b.session.login(username, password);
   if (result?.state === "need-2fa" || result?.state === "need-learn-2fa") {
     // login() 直落 learn 二轮墙时同样进交互循环（事件名即阶段名，桥/webui 已认）

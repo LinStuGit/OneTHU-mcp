@@ -347,6 +347,18 @@ export class CampusSession {
     if (idJsid && !this.#demo.idJsid) this.#demo.idJsid = idJsid;
   }
 
+  /** 浏览器驱动登录的收尾（2026-09-20 重构）：真实 Chromium 完成 CAS、
+   *  doubleAuth、redirect2Jsp JS 续跳全链（浏览器内会话自洽，字符串模型
+   *  不参与登录），成功后把导出的门户 cookie 串与 learn csrf 注入会话——
+   *  等价 verifyLearn2FA 的成功尾部。wengine 模型里门户会话即一切。 */
+  completeBrowserLogin(csrf: string, portalCookies: string, idJsid = ""): void {
+    this.restoreDemo(portalCookies, idJsid);
+    this.learn.applyCsrf(csrf);
+    this.#learnEraCookies = this.#demo.webvpnCookies;
+    this.#seedJar();
+    this.state = "ready";
+  }
+
   /** roam-id 完成时的 cookie 串快照（持久化用：重启后 info/webvpn 桶灌入用） */
   get infoEraSnapshot(): string {
     return this.#infoEraCookies;
