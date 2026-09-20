@@ -576,6 +576,8 @@ async function resumeAutoForm(
       .join("  |  ");
     trace.push("AUTOFORM无表单 forms=" + forms.length +
       (dump ? " 列表=" + dump.slice(0, 500) : "") +
+      " 落点=" + r.url.slice(0, 110) +
+      " title=" + (/<title>([^<]*)/.exec(r.html)?.[1] ?? "?").slice(0, 40) +
       " 续跳=" + (/<meta[^>]+http-equiv=["']refresh["']/i.test(r.html) ? "meta" : "") +
       (/<iframe/i.test(r.html) ? "+iframe" : "") +
       (/location\.(href|replace)|setTimeout|submit\(\)/i.test(r.html) ? "+script" : ""));
@@ -618,6 +620,9 @@ export async function demoVerify2fa(
       trace.push("SCRIPT->" + next.slice(0, 100));
       page = await webvpnRequest(fetchLike, "GET", next, { cookies: s.webvpnCookies });
       s.webvpnCookies = page.cookies;
+      trace.push("SCRIPT落=" + page.url.slice(0, 110) +
+        " title=" + (/<title>([^<]*)/.exec(page.html)?.[1] ?? "?").slice(0, 40) +
+        " cookies=" + s.webvpnCookies.split(";").map((x) => x.trim().split("=")[0]).filter(Boolean).join(","));
       page = await resumeAutoForm(fetchLike, s, page, trace);
       page = await followMetaRefresh(fetchLike, s, page, trace);
     }
