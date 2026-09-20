@@ -191,10 +191,12 @@ function boot(secret: Secret | null): Boot {
     http, learn, info, fetchLike,
     fingerprint: state.session?.fingerprint,
   });
+  // 2026-09-20 定案（浏览器登录架构）：全量 HTTP 重登在此部署永远无法交互完成
+  // （learn 二次认证），且单会话策略会把活着的 learn 会话踢掉（whoami 自愈
+  // 连坐 kill learn 实录）。AuthRequired 一律走免密 relearnRoam（learn 直连
+  // 重漫游，不踢会话）；修不活就原样报错。
   http.onAuthRequired(async () => {
-    if (state.secret) {
-      try { await session.softRelogin(); } catch { /* 交给业务层报错 */ }
-    }
+    try { await session.relearnRoam(); } catch { /* 交给业务层报错 */ }
   });
   if (state.session) {
     try {
@@ -293,8 +295,9 @@ function needLogin(b: Boot): void {
   }
 }
 
-/** 只读命令的自动自愈：会话失效 → 用记住的密码重登一次 → 重试原操作。
- *  写操作（book/submit/drop/cancel）绝不自动重试，防重复提交。 */
+/** 只读命令的自动自愈：会话失效 → 免密 relearnRoam（learn 直连重漫游）→ 重试。
+ *  2026-09-20 定案：绝不全量 relogin——learn 二次认证非交互完不成，且会踢活会话。
+ *  写操作（booking/submit/drop/cancel）绝不自动重试，防重复提交。 */
 async function withAuth<T>(b: Boot, fn: () => Promise<T>, safe = true): Promise<T> {
   try {
     return await fn();
@@ -303,9 +306,9 @@ async function withAuth<T>(b: Boot, fn: () => Promise<T>, safe = true): Promise<
     const authy = err instanceof core.AuthRequiredError
       || (core as any).isAuthError?.(err) === true
       || /重新登录|登录已过期|会话未能建立|looksLoggedOut|未登录|无权限|漫游|roamingurl|登录超时/i.test(msg);
-    if (!safe || !authy || !b.state.secret) throw err;
-    await b.session.relogin(b.state.secret.username, b.state.secret.password);
-    persist(b);
+    if (!safe || !authy) throw err;
+    const healed = await b.session.relearnRoam().catch(() => false);
+    if (healed) persist(b);
     return await fn();
   }
 }

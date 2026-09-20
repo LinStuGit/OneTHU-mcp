@@ -51,6 +51,21 @@ async function launchBrowser(profileDir: string): Promise<BrowserContext> {
 const jarString = (all: { name: string; value: string }[]) =>
   all.map((c) => `${c.name}=${c.value}`).join("; ");
 
+/** 按域分桶导出。ctx.cookies(url) 会按 path 匹配过滤（TSINGHUAUSERID 是
+ *  path=/do/off/… 种的，URL=/ 取不到 → id 认证 cookie 对缺一半，重漫游
+ *  auth=false 实录），所以全量取回后按 domain 后缀分桶；同域内主机名
+ *  cookie 排在父域前（字符串模型服务端读先到的同名）。 */
+function bucketCookies(
+  all: { domain: string; name: string; value: string }[],
+  host: string,
+): string {
+  const inBucket = all.filter((c) =>
+    c.domain === host || c.domain === "." + host || c.domain === ".tsinghua.edu.cn");
+  inBucket.sort((a, b) =>
+    (a.domain === host ? 0 : 1) - (b.domain === host ? 0 : 1));
+  return jarString(inBucket);
+}
+
 export async function browserLogin(opts: {
   username: string;
   password: string;
@@ -105,10 +120,11 @@ export async function browserLogin(opts: {
     // 成功判定与 HTTP 链同款：课程页出现 _csrf（CAS/登录页绝无此字段）
     const csrf = /_csrf=([^&"'\s<]+)/.exec(html)?.[1] ?? "";
     if (csrf && !/i_user|sm2publicKey/.test(html)) {
-      // 按 URL 语义导出：ctx.cookies(url) 返回「浏览器访问该 URL 会携带的全部 cookie」
-      const learnCookies = jarString(await ctx.cookies("https://learn.tsinghua.edu.cn/"));
-      const idCookies = jarString(await ctx.cookies("https://id.tsinghua.edu.cn/"));
-      const portalCookies = jarString(await ctx.cookies("https://webvpn.tsinghua.edu.cn/"));
+      // 全量取回按域分桶（ctx.cookies(url) 的 path 过滤会漏带路径的 cookie）
+      const all = await ctx.cookies();
+      const learnCookies = bucketCookies(all, "learn.tsinghua.edu.cn");
+      const idCookies = bucketCookies(all, "id.tsinghua.edu.cn");
+      const portalCookies = bucketCookies(all, "webvpn.tsinghua.edu.cn");
       const result: BrowserLoginResult = { csrf, learnCookies, idCookies, portalCookies };
       onStage("网络学堂会话已建立，正在导出会话并关闭浏览器…");
       await ctx.close().catch(() => undefined);
