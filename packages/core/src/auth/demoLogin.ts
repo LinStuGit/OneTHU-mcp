@@ -524,22 +524,31 @@ async function resumeAutoForm(
   r: WvResult,
   trace: string[],
 ): Promise<WvResult> {
-  // 2026-09-20：id CAS doubleauth 落地页（redirect2Jsp 等）是"登录成功"自动
-  // POST 表单——hidden 字段带着原服务续接参数（otpForm 同款提取逻辑）。
-  // 只 followMetaRefresh/GO anchor 拿不到 jsdk 续期，learn 领不到票（实录）。
-  const fm = /<form[^>]*action="([^"]*)"/i.exec(r.html);
-  const pageLooksLikeSubmit = /redirect2Jsp|onload|theform|正在处理|登录成功|doFormSubmit/i.test(r.html);
-  if (!fm || !pageLooksLikeSubmit) return r;
-  let action = fm[1]!;
-  if (action && !action.startsWith("http")) action = new URL(action, r.url).toString();
-  const hidden: Record<string, string> = {};
-  const re = /<input[^>]*type=["']hidden["'][^>]*name="([^"]*)"[^>]*value="([^"]*)"/gi;
-  let m: RegExpExecArray | null;
-  let cnt = 0;
-  while ((m = re.exec(r.html)) !== null) { hidden[m[1]!] = m[2]!; cnt++; }
-  if (cnt === 0) return r;
-  trace.push("AUTOFORM POST " + cnt + " hidden -> " + action.slice(0, 90));
-  const resume = await webvpnRequest(fetchLike, "POST", action, { cookies: s.webvpnCookies, data: hidden });
+  // 2026-09-20：redirect2Jsp 等"登录成功"页可含多个 <form>（语言切换/locale 常排最前）。
+  // 取错表单 POST 到 locale/change 白跑（实录）。多表单评分：偏好 theform/jsdk/learn 目标。
+  const forms = [...r.html.matchAll(/<form([^>]*)>([\s\S]*?)<\/form>/gi)];
+  let best: { action: string; hidden: Record<string, string> } | null = null;
+  let bestScore = -Infinity;
+  for (const f of forms) {
+    const attrs = f[1] ?? "";
+    const action = /action=["]([^"]+)["]/i.exec(attrs)?.[1] ?? "";
+    if (!action || /locale|i18n|changeLanguage|maintain|logout|environment/i.test(action)) continue;
+    const hidden: Record<string, string> = {};
+    const re = /<input[^>]*type=["']hidden["'][^>]*name="([^"]*)"[^>]*value="([^"]*)"/gi;
+    let m: RegExpExecArray | null;
+    let cnt = 0;
+    while ((m = re.exec(f[2]!)) !== null) { hidden[m[1]!] = m[2]!; cnt++; }
+    if (cnt === 0) continue;
+    let score = cnt * 3;
+    if (/id=["']theform["']/i.test(attrs)) score += 200;
+    if (/id=["'].*form["']/i.test(attrs)) score += 40;
+    if (/learn|jsdk|https-|777[0-9a-f]{2}/i.test(action)) score += 120;
+    if (score > bestScore) { bestScore = score; best = { action, hidden }; }
+  }
+  if (!best) return r;
+  const action = best.action;
+  trace.push("AUTOFORM POST " + Object.keys(best.hidden).length + " hidden -> " + action.slice(0, 90));
+  const resume = await webvpnRequest(fetchLike, "POST", action, { cookies: s.webvpnCookies, data: best.hidden });
   s.webvpnCookies = resume.cookies;
   trace.push("AUTOFORM终=" + resume.url.slice(0, 100) + " csrf=" + /_csrf/i.test(resume.html) + " len=" + resume.html.length);
   return resume;
