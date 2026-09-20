@@ -46,14 +46,6 @@ async function launchBrowser(profileDir: string): Promise<BrowserContext> {
   throw new Error("无法启动浏览器（" + errors.join("；") + "）");
 }
 
-/** 域内 cookie → "k=v; k=v" 串 */
-function cookieString(all: { domain: string; name: string; value: string }[], domainPart: string): string {
-  return all
-    .filter((c) => c.domain.includes(domainPart))
-    .map((c) => `${c.name}=${c.value}`)
-    .join("; ");
-}
-
 export async function browserLogin(opts: {
   username: string;
   password: string;
@@ -108,11 +100,19 @@ export async function browserLogin(opts: {
     // 成功判定与 HTTP 链同款：课程页出现 _csrf（CAS/登录页绝无此字段）
     const csrf = /_csrf=([^&"'\s<]+)/.exec(html)?.[1] ?? "";
     if (csrf && !/i_user|sm2publicKey/.test(html)) {
-      const all = await ctx.cookies();
+      // 按 URL 语义导出：ctx.cookies(url) 返回「浏览器访问该 URL 会携带的全部
+      // cookie」——父域（.tsinghua.edu.cn）的 wengine_vpn_ticket 也在内。早先按
+      // 域名子串过滤把 ticket 漏了，门户只剩 JSESSIONID 一只手 handshake（实录：
+      // 复放被弹 /login）。id 域同理取主会话 JSESSIONID。
+      const portalCookies = (await ctx.cookies("https://webvpn.tsinghua.edu.cn/"))
+        .map((c) => `${c.name}=${c.value}`)
+        .join("; ");
       const result: BrowserLoginResult = {
         csrf,
-        portalCookies: cookieString(all, "webvpn.tsinghua.edu.cn"),
-        idJsid: cookieString(all, "id.tsinghua.edu.cn").match(/JSESSIONID=([^;\s]+)/)?.[1] ?? "",
+        portalCookies,
+        idJsid: (await ctx.cookies("https://id.tsinghua.edu.cn/"))
+          .filter((c) => c.name === "JSESSIONID")
+          .map((c) => c.value)[0] ?? "",
       };
       onStage("网络学堂会话已建立，正在导出会话并关闭浏览器…");
       await ctx.close().catch(() => undefined);
