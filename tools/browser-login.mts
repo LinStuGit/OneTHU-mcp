@@ -78,15 +78,20 @@ export async function browserLogin(opts: {
     onStage("门户页打开缓慢，继续等待…");
   }
 
-  // 预填账密（best-effort：表单在就填并回车提交；动态码留给用户在窗口内完成）
-  try {
-    await page.waitForSelector("#i_user", { timeout: 8_000 });
-    await page.fill("#i_user", username);
-    await page.fill("#i_pass", password);
-    onStage("已自动填入账号密码，如页面有动态码/验证请直接在窗口内完成");
-    await page.press("#i_pass", "Enter");
-  } catch {
-    onStage("登录窗口已打开，请在窗口内完成登录");
+  // 预填账密（best-effort：凭据齐且有登录表单才自动填；动态码留给用户在窗口内完成。
+  // 没有记住的凭据时跳过——用户直接在窗口里输入）
+  if (username && password) {
+    try {
+      await page.waitForSelector("#i_user", { timeout: 8_000 });
+      await page.fill("#i_user", username);
+      await page.fill("#i_pass", password);
+      onStage("已自动填入账号密码，如页面有动态码/验证请直接在窗口内完成");
+      await page.press("#i_pass", "Enter");
+    } catch {
+      onStage("登录窗口已打开，请在窗口内完成登录");
+    }
+  } else {
+    onStage("登录窗口已打开，请在窗口内输入账号密码并完成验证");
   }
 
   const deadline = Date.now() + timeoutMs;

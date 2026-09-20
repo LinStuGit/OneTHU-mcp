@@ -351,9 +351,12 @@ reg("keepalive", async (b) => {
 });
 
 reg("login", async (b, args) => {
+  // 凭据可省（2026-09-20 浏览器登录重构）：网页端只发 {}，预填用记住的密码；
+  // 都没有时用户直接在浏览器窗口里输入。仅 HTTP 后备链强制要求账密。
   const username = String(args.username ?? "").trim();
   const password = String(args.password ?? "");
-  if (!username || !password) fail("需要 username / password");
+  const prefUser = username || String(b.state.secret?.username ?? "");
+  const prefPass = password || String(b.state.secret?.password ?? "");
   b.session.fingerprint = b.state.session?.fingerprint ?? b.session.fingerprint;
   b.session.finger3 = b.state.session?.finger3 ?? "";
 
@@ -363,21 +366,23 @@ reg("login", async (b, args) => {
     try {
       const { browserLogin } = await import("./browser-login.mjs");
       const r = await browserLogin({
-        username, password,
+        username: prefUser,
+        password: prefPass,
         profileDir: join(STATE_DIR, "browser-profile"),
         onStage: (m) => emit({ ev: "browser-stage", message: m }),
       });
-      b.session.injectCredentials(username, password);
+      if (prefUser) b.session.injectCredentials(prefUser, prefPass);
       b.session.completeBrowserLogin(r.csrf, r.portalCookies, r.idJsid);
-      if (args.remember !== false) await saveSecret({ username, password });
+      if (prefUser && args.remember !== false) await saveSecret({ username: prefUser, password: prefPass });
       persist(b);
-      return { username, sessionState: b.session.state, via: "browser" };
+      return { username: prefUser || b.session.username, sessionState: b.session.state, via: "browser" };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       emit({ ev: "browser-stage", message: "浏览器登录未完成（" + msg.slice(0, 160) + "），回退 HTTP 链" });
     }
   }
 
+  if (!username || !password) fail("需要 username / password（HTTP 后备链必填；浏览器登录请带凭据或用记住的密码）");
   const result: any = await b.session.login(username, password);
   if (result?.state === "need-2fa" || result?.state === "need-learn-2fa") {
     // login() 直落 learn 二轮墙时同样进交互循环（事件名即阶段名，桥/webui 已认）
