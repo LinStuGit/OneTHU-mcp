@@ -358,15 +358,19 @@ export class CampusSession {
     return this.#demo.debug ?? "";
   }
 
-  /** 浏览器驱动登录的收尾（2026-09-20 重构）：真实 Chromium 完成 CAS、
-   *  doubleAuth、redirect2Jsp JS 续跳全链（浏览器内会话自洽，字符串模型
-   *  不参与登录），成功后把导出的门户 cookie 串、id 域 cookie 串与 learn
-   *  csrf 注入会话。learn 数据面走直连（learnX 路线），learn 会话由
-   *  relearnRoam 用 idCookies 重漫游建立。 */
-  completeBrowserLogin(csrf: string, portalCookies: string, idCookies: string): void {
+  /** 浏览器驱动登录的收尾（2026-09-20 重构，learnX 路线）：真实 Chromium 在
+   *  **直连**通道完成 CAS/doubleAuth/JS 续跳全链，导出 learn 直连会话、id 域
+   *  cookie 对与门户会话。learn 数据面直连（http.ts learn 无条件直连），
+   *  learnCookies 直接灌 learn 桶；idCookies 供 relearnRoam 重漫游。 */
+  completeBrowserLogin(
+    csrf: string,
+    learnCookies: string,
+    idCookies: string,
+    portalCookies = "",
+  ): void {
     this.restoreDemo(portalCookies, "", idCookies);
     this.learn.applyCsrf(csrf);
-    this.#learnEraCookies = this.#demo.webvpnCookies;
+    this.#learnEraCookies = learnCookies || this.#demo.webvpnCookies;
     this.#seedJar();
     this.state = "ready";
   }

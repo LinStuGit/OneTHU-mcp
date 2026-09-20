@@ -374,7 +374,7 @@ reg("login", async (b, args) => {
         onStage: (m) => emit({ ev: "browser-stage", message: m }),
       });
       if (prefUser) b.session.injectCredentials(prefUser, prefPass);
-      b.session.completeBrowserLogin(r.csrf, r.portalCookies, r.idCookies);
+      b.session.completeBrowserLogin(r.csrf, r.learnCookies, r.idCookies, r.portalCookies);
       if (prefUser && args.remember !== false) await saveSecret({ username: prefUser, password: prefPass });
       persist(b);
       return { username: prefUser || b.session.username, sessionState: b.session.state, via: "browser" };
